@@ -18,13 +18,13 @@ repos:
         name: black
         stages: [pre-commit]
         language: python
-        entry: black app
+        entry: black memstate
         types: [python]
       - id: bandit
         name: bandit
         stages: [pre-commit]
         language: system
-        entry: bandit -r app
+        entry: bandit -r memstate
         types: [python]
         pass_filenames: false
       - id: mypy
@@ -38,7 +38,7 @@ repos:
         name: ruff
         stages: [ pre-commit ]
         language: system
-        entry: ruff check app
+        entry: ruff check memstate
         types: [ python ]
         pass_filenames: false
   - repo: https://github.com/pre-commit/pre-commit-hooks
