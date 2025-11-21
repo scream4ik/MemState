@@ -1,0 +1,54 @@
+[project]
+name = "memstate"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.1",
+    "black>=25.11.0",
+    "isort>=7.0.0",
+    "mypy>=1.18.2",
+    "pre-commit>=4.4.0",
+    "ruff>=0.14.6",
+]
+
+[tool.mypy]
+files = "memstate"
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+ignore_errors = false
+ignore_missing_imports = true
+implicit_reexport = true
+strict_optional = true
+strict_equality = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_unreachable = true
+warn_no_return = true
+
+[tool.black]
+line-length = 120
+include = '\.pyi?$'
+
+[tool.isort]
+known_first_party = "memstate"
+multi_line_output = 3
+ensure_newline_before_comments = true
+default_section = "THIRDPARTY"
+skip = [".venv/"]
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+line_length = 120
+
+[tool.bandit]
+exclude_dirs = "tests"
+skips = ["B608"]

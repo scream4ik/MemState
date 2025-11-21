@@ -1,0 +1,60 @@
+# .pre-commit-config.yaml
+
+exclude: 'docs|node_modules|migrations|terraform|.git|.tox'
+default_stages: [pre-commit]
+fail_fast: true
+
+repos:
+  - repo: local
+    hooks:
+      - id: isort
+        name: isort
+        stages: [pre-commit]
+        language: system
+        entry: isort
+        types: [python]
+        args: [ "--profile", "black" ]
+      - id: black
+        name: black
+        stages: [pre-commit]
+        language: python
+        entry: black app
+        types: [python]
+      - id: bandit
+        name: bandit
+        stages: [pre-commit]
+        language: system
+        entry: bandit -r app
+        types: [python]
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        stages: [pre-commit]
+        language: system
+        entry: bash -c 'PYTHONPATH="$PYTHONPATH:$PWD" mypy'
+        types: [python]
+        pass_filenames: false
+      - id: ruff
+        name: ruff
+        stages: [ pre-commit ]
+        language: system
+        entry: ruff check app
+        types: [ python ]
+        pass_filenames: false
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-docstring-first
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: debug-statements
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-symlinks
+      - id: forbid-new-submodules
