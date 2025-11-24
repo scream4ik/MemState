@@ -7,11 +7,21 @@ from .base import StorageBackend
 
 
 class SQLiteStorage(StorageBackend):
-    def __init__(self, path: str = "memory.db") -> None:
-        self.path = path
+    def __init__(self, connection_or_path: str | sqlite3.Connection = "memory.db") -> None:
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._owns_connection = False
+
+        if isinstance(connection_or_path, str):
+            self._conn = sqlite3.connect(connection_or_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._owns_connection = True
+        elif isinstance(connection_or_path, sqlite3.Connection):
+            self._conn = connection_or_path
+            self._conn.row_factory = sqlite3.Row
+            self._owns_connection = False
+        else:
+            raise ValueError(f"Invalid connection type: {type(connection_or_path)}")
+
         self._init_db()
 
     def _init_db(self) -> None:
@@ -23,22 +33,10 @@ class SQLiteStorage(StorageBackend):
                 """
                       CREATE TABLE IF NOT EXISTS facts
                       (
-                          id
-                          TEXT
-                          PRIMARY
-                          KEY,
-                          type
-                          TEXT
-                          NOT
-                          NULL,
-                          data
-                          TEXT
-                          NOT
-                          NULL,
-                          created_at
-                          DATETIME
-                          DEFAULT
-                          CURRENT_TIMESTAMP
+                          id TEXT PRIMARY KEY,
+                          type TEXT NOT NULL,
+                          data TEXT NOT NULL,
+                          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                       )
                       """
             )
@@ -47,23 +45,10 @@ class SQLiteStorage(StorageBackend):
                 """
                       CREATE TABLE IF NOT EXISTS tx_log
                       (
-                          tx_id
-                          INTEGER
-                          PRIMARY
-                          KEY
-                          AUTOINCREMENT,
-                          uuid
-                          TEXT
-                          NOT
-                          NULL,
-                          timestamp
-                          TEXT
-                          NOT
-                          NULL,
-                          data
-                          TEXT
-                          NOT
-                          NULL
+                          tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          uuid TEXT NOT NULL,
+                          timestamp TEXT NOT NULL,
+                          data TEXT NOT NULL
                       )
                       """
             )
@@ -151,4 +136,5 @@ class SQLiteStorage(StorageBackend):
             return ids
 
     def close(self):
-        self._conn.close()
+        if self._owns_connection:
+            self._conn.close()

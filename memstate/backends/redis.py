@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, Union
 
 from .base import StorageBackend
 
@@ -10,18 +10,33 @@ except ImportError:
 
 
 class RedisStorage(StorageBackend):
-    def __init__(self, redis_url: str) -> None:
+    def __init__(self, client_or_url: Union[str, "redis.Redis"] = "redis://localhost:6379/0") -> None:
         if not redis:
             raise ImportError("redis package is required. pip install redis")
-        self.r = redis.from_url(redis_url, decode_responses=True)
+
         self.prefix = "mem:"
+
+        if isinstance(client_or_url, str):
+            self.r = redis.from_url(client_or_url, decode_responses=True)
+            self._owns_client = True
+        else:
+            self.r = client_or_url
+            self._owns_client = False
 
     def _key(self, id: str) -> str:
         return f"{self.prefix}fact:{id}"
 
+    def _to_str(self, data: bytes | str | None) -> str | None:
+        if data is None:
+            return None
+        if isinstance(data, bytes):
+            return data.decode("utf-8")
+        return data
+
     def load(self, id: str) -> dict[str, Any] | None:
-        data = self.r.get(self._key(id))
-        return json.loads(data) if data else None
+        raw_data = self.r.get(self._key(id))
+        json_str = self._to_str(raw_data)
+        return json.loads(json_str) if json_str else None
 
     def save(self, fact_data: dict[str, Any]) -> None:
         self.r.set(self._key(fact_data["id"]), json.dumps(fact_data))
@@ -65,8 +80,11 @@ class RedisStorage(StorageBackend):
             pipe.get(self._key(i))
         raw_docs = pipe.execute()
 
-        for doc_str in raw_docs:
-            if not doc_str:
+        for raw_doc in raw_docs:
+            if not raw_doc:
+                continue
+            doc_str = self._to_str(raw_doc)
+            if doc_str is None:
                 continue
             fact = json.loads(doc_str)
 
@@ -88,8 +106,15 @@ class RedisStorage(StorageBackend):
 
     def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         # LPUSH adds to head (index 0). So 0 is newest.
-        raw = self.r.lrange(f"{self.prefix}tx_log", offset, offset + limit - 1)
-        return [json.loads(x) for x in raw]
+        raw_list = self.r.lrange(f"{self.prefix}tx_log", offset, offset + limit - 1)
+
+        results = []
+        for item in raw_list:
+            s = self._to_str(item)
+            if s is not None:
+                results.append(json.loads(s))
+
+        return results
 
     def delete_session(self, session_id: str) -> list[str]:
         # Get IDs from session index
@@ -106,3 +131,7 @@ class RedisStorage(StorageBackend):
         pipe.delete(key)  # clear index
         pipe.execute()
         return ids
+
+    def close(self):
+        if self._owns_client:
+            self.r.close()
