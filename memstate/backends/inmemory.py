@@ -10,6 +10,19 @@ class InMemoryStorage(StorageBackend):
         self._tx_log: list[dict[str, Any]] = []
         self._lock = threading.RLock()
 
+    def _get_value_by_path(self, data: dict[str, Any], path: str) -> Any:
+        keys = path.split(".")
+        val: Any = data
+        try:
+            for k in keys:
+                if isinstance(val, dict):
+                    val = val.get(k)
+                else:
+                    return None
+            return val
+        except (AttributeError, TypeError):
+            return None
+
     def load(self, id: str) -> dict[str, Any] | None:
         with self._lock:
             return self._store.get(id)
@@ -32,8 +45,8 @@ class InMemoryStorage(StorageBackend):
                     match = True
                     for k, v in json_filters.items():
                         # The simplest depth-first search payload
-                        payload_val = fact.get("payload", {}).get(k)
-                        if payload_val != v:
+                        actual_val = self._get_value_by_path(fact, k)
+                        if actual_val != v:
                             match = False
                             break
                     if not match:

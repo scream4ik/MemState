@@ -1,3 +1,4 @@
+import copy
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -102,9 +103,8 @@ class MemoryStore:
             if constraint and constraint.singleton_key:
                 key_val = validated_payload.get(constraint.singleton_key)
                 if key_val is not None:
-                    matches = self.storage.query(
-                        type_filter=fact.type, json_filters={constraint.singleton_key: key_val}
-                    )
+                    search_key = f"payload.{constraint.singleton_key}"
+                    matches = self.storage.query(type_filter=fact.type, json_filters={search_key: key_val})
 
                     if matches:
                         existing_raw = matches[0]
@@ -113,7 +113,7 @@ class MemoryStore:
                         if constraint.immutable:
                             raise ConflictError(f"Immutable constraint violation: {fact.type}:{key_val}")
 
-                        before = existing_raw
+                        before = copy.deepcopy(existing_raw)
                         fact.id = existing_id
                         after = fact.model_dump()
 
@@ -133,9 +133,9 @@ class MemoryStore:
         with self._lock:
             existing = self.storage.load(fact_id)
             if not existing:
-                raise MemoryError("Fact not found")
+                raise MemoryStoreError("Fact not found")
 
-            before = dict(existing)
+            before = copy.deepcopy(existing)
             # Deep merge or shallow? Shallow for MVP
             existing["payload"].update(patch.get("payload", {}))
             existing["ts"] = datetime.now(timezone.utc).isoformat()

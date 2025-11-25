@@ -6,7 +6,7 @@ from .base import StorageBackend
 try:
     import redis
 except ImportError:
-    redis = None
+    redis = None  # type: ignore[assignment]
 
 
 class RedisStorage(StorageBackend):
@@ -17,7 +17,7 @@ class RedisStorage(StorageBackend):
         self.prefix = "mem:"
 
         if isinstance(client_or_url, str):
-            self.r = redis.from_url(client_or_url, decode_responses=True)
+            self.r = redis.from_url(client_or_url, decode_responses=True)  # type: ignore[no-untyped-call]
             self._owns_client = True
         else:
             self.r = client_or_url
@@ -32,6 +32,19 @@ class RedisStorage(StorageBackend):
         if isinstance(data, bytes):
             return data.decode("utf-8")
         return data
+
+    def _get_value_by_path(self, data: dict[str, Any], path: str) -> Any:
+        keys = path.split(".")
+        val: Any = data
+        try:
+            for k in keys:
+                if isinstance(val, dict):
+                    val = val.get(k)
+                else:
+                    return None
+            return val
+        except (AttributeError, TypeError):
+            return None
 
     def load(self, id: str) -> dict[str, Any] | None:
         raw_data = self.r.get(self._key(id))
@@ -92,7 +105,8 @@ class RedisStorage(StorageBackend):
             if json_filters:
                 match = True
                 for k, v in json_filters.items():
-                    if fact.get("payload", {}).get(k) != v:
+                    actual_val = self._get_value_by_path(fact, k)
+                    if actual_val != v:
                         match = False
                         break
                 if not match:

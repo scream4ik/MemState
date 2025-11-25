@@ -1,7 +1,7 @@
 [project]
 name = "memstate"
 version = "0.1.0"
-description = "Add your description here"
+description = "The Git for AI Agent Memory"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,9 +12,11 @@ dependencies = [
 dev = [
     "bandit>=1.9.1",
     "black>=25.11.0",
+    "fakeredis>=2.32.1",
     "isort>=7.0.0",
     "mypy>=1.18.2",
     "pre-commit>=4.4.0",
+    "pytest>=9.0.1",
     "ruff>=0.14.6",
 ]
 

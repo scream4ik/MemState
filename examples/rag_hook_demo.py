@@ -85,7 +85,7 @@ def main():
     # Add hook
     memory.add_hook(hook)
 
-    print("\n--- Phase 1: Ingestion (Загрузка знаний) ---")
+    print("\n--- Phase 1: Ingestion ---")
     # We simply commit the facts to MemState. The hook will automatically transfer them to Vectors.
 
     doc1 = Fact(type="knowledge_base", payload={"content": "The moon is made of rock and dust."})
