@@ -63,7 +63,7 @@ memory.register_schema("user", UserProfile, Constraint(singleton_key="username")
 
 # 4. Commit a Fact (Transactional)
 memory.commit(
-    Fact(type="user", payload={"username": "neo", "level": 99}), 
+    Fact(type="user", payload={"username": "neo", "level": 99}),
     actor="Agent_Smith"
 )
 
@@ -100,7 +100,7 @@ Check the `examples/` folder for runnable scripts:
 
 1.  **`examples/main_demo.py`**
     *   Full tour: Schemas, Singletons, Hallucination Correction via Rollback.
-    
+
 2.  **`examples/rag_hook_demo.py`**
     *   **Hybrid Memory Pattern.**
     *   Shows how to use MemState as the "Master DB" that automatically syncs text to a mock Vector DB for RAG.
@@ -115,3 +115,21 @@ Ready for local development.
 Supports: `InMemoryStorage`, `RedisStorage`, `SQLiteStorage`.
 
 Planned: `PostgresStorage`.
+
+---
+
+## 📄 License
+
+Licensed under the [Apache 2.0 License](LICENSE).
+
+---
+
+## 🤝 Contributing
+
+Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+---
+
+## ⭐️ Like the idea?
+
+Star the repo and share feedback — we’re building in the open.
