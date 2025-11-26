@@ -66,7 +66,12 @@ For Redis support
 pip install memstate[redis]
 ```
 
-### Usage
+For LangGraph support
+```bash
+pip install memstate[langgraph]
+```
+
+### Basic Usage
 
 ```python
 from memstate.storage import MemoryStore, Fact, Constraint
@@ -101,6 +106,29 @@ print("After rollback:", memory.query(typename="user")[0]['payload'])
 # Level is back to 99.
 ```
 
+### Using with LangGraph
+
+MemState includes a native checkpointer that persists your agent's graph state to SQLite/Redis.
+
+```python
+from memstate.integrations.langgraph import MemStateCheckpointer
+from memstate.storage import MemoryStore
+from memstate.backends.sqlite import SQLiteStorage
+
+# Initialize
+storage = SQLiteStorage("agent_brain.db")
+memory = MemoryStore(storage)
+checkpointer = MemStateCheckpointer(memory=memory)
+
+# Compile your graph
+app = workflow.compile(checkpointer=checkpointer)
+
+# Run with thread_id - state is automatically saved!
+config = {"configurable": {"thread_id": "session_1"}}
+inputs = "I would like to order pizza."
+app.invoke(inputs, config=config)
+```
+
 ---
 
 ## 💡 Use Cases
@@ -130,6 +158,18 @@ Check the [examples/](https://github.com/scream4ik/MemState/tree/main/examples) 
     *   **Hybrid Memory Pattern.**
     *   Shows how to use MemState as the "Master DB" that automatically syncs text to a mock Vector DB for RAG.
     *   Demonstrates automatic cleanup: Delete a fact in SQL -> It vanishes from Vectors.
+
+3.  **[examples/langgraph_checkpoint_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/langgraph_checkpoint_demo.py)**
+    *   **LangGraph Persistence (Zero-config).**
+    *   Shows how to plug `MemStateCheckpointer` into a LangGraph workflow.
+    *   Demonstrates pausing, resuming, and persisting agent threads to database.
+    *   *Runs locally without API keys.*
+
+4.  **[examples/pizza_agent_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/pizza_agent_demo.py)**
+    *   **Advanced Stateful Agent.**
+    *   A "Pizza Ordering" agent that separates Chat History from Business State (the JSON order).
+    *   **Resilience:** Simulate a server crash and resume the order exactly where you left off.
+    *   **Audit:** Shows how to query the SQL log to see exactly when the user changed "Pepperoni" to "Mushrooms".
 
 ---
 

@@ -1,6 +1,6 @@
 [project]
 name = "memstate"
-version = "0.1.0"
+version = "0.2.0"
 description = "Transactional, type-safe state management for LLM Agents. The 'Git' for AI memory."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 redis = ["redis>=7.1.0"]
+langgraph = ["langgraph>=1.0.4"]
 
 [dependency-groups]
 dev = [

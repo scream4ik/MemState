@@ -95,7 +95,7 @@ class MemoryStore:
             validated_payload = self._schema_registry.validate(fact.type, fact.payload)
             fact.payload = validated_payload
 
-            if ephemeral and session_id:
+            if session_id:
                 fact.session_id = session_id
 
             constraint = self._constraints.get(fact.type)
