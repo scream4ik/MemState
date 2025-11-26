@@ -1,9 +1,13 @@
-# 🧠 MemState: The "Git" for AI Agent Memory
+# 🧠 MemState
 
-**Stop building agents on JSON blobs and hope.**
-MemState is a transactional, typed, and reversible state management layer for LLM Agents.
+[![PyPI version](https://img.shields.io/pypi/v/memstate.svg)](https://pypi.org/project/memstate/)
+[![Python versions](https://img.shields.io/pypi/pyversions/memstate.svg)](https://pypi.org/project/memstate/)
+[![License](https://img.shields.io/pypi/l/memstate.svg)](https://github.com/scream4ik/MemState/blob/main/LICENSE)
+[![Tests](https://github.com/scream4ik/MemState/actions/workflows/test.yml/badge.svg)](https://github.com/scream4ik/MemState/actions)
+<!-- [![Downloads](https://static.pepy.tech/badge/memstate)](https://pepy.tech/project/memstate) -->
 
-It replaces "Context Stuffing" and "Vector Soup" with a deterministic **Source of Truth**.
+**The "Git" for AI Agent Memory.**
+Transactional, type-safe state management with rollbacks for LangGraph & LangChain agents.
 
 ---
 
@@ -16,6 +20,8 @@ Most agent memory systems today are just wrappers around Vector DBs. This leads 
 
 **MemState is different.** It treats Agent Memory like a Database, not a text dump.
 
+---
+
 ## ✨ Key Features
 
 *   **🛡️ Type-Safe:** Uses `Pydantic` schemas. If an agent tries to save a string into an `age: int` field, it fails *before* corruption happens.
@@ -26,19 +32,38 @@ Most agent memory systems today are just wrappers around Vector DBs. This leads 
 
 ---
 
+## 🏗 Architecture
+
+```mermaid
+flowchart LR
+    User[User] -->|Input| Agent[AI Agent]
+    Agent -->|1. Commit Fact| Mem{MemState}
+
+    subgraph Core [Logic Layer]
+        direction TB
+        Schema[🛡️ Pydantic Schema]
+        Const[🔒 Constraints]
+        Log[📝 Tx Log]
+    end
+
+    Mem --> Schema --> Const --> Log
+
+    Log -->|2. Persist| DB[(Database)]
+    Log -.->|3. Sync Hook| Vec[(Vector DB)]
+```
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation
 ```bash
-# Clone the repo
-git clone https://github.com/scream4ik/MemState.git
-cd MemState
+pip install memstate
+```
 
-# Create a virtual environment
-uv venv
-
-# Install dependencies
-uv sync
+For Redis support
+```bash
+pip install memstate[redis]
 ```
 
 ### Usage
@@ -62,13 +87,13 @@ memory = MemoryStore(storage)
 memory.register_schema("user", UserProfile, Constraint(singleton_key="username"))
 
 # 4. Commit a Fact (Transactional)
-memory.commit(
+user_fid = memory.commit(
     Fact(type="user", payload={"username": "neo", "level": 99}),
     actor="Agent_Smith"
 )
 
 # 5. Agent makes a mistake? Rollback!
-memory.update(fact_id="...", patch={"payload": {"level": 0}})  # Oops
+memory.update(fact_id=user_fid, patch={"payload": {"level": 0}})  # Oops
 print("Before rollback:", memory.query(typename="user")[0]['payload'])
 
 memory.rollback(1)
@@ -96,12 +121,12 @@ print("After rollback:", memory.query(typename="user")[0]['payload'])
 
 ## 📂 Demos
 
-Check the `examples/` folder for runnable scripts:
+Check the [examples/](https://github.com/scream4ik/MemState/tree/main/examples) folder for runnable scripts:
 
-1.  **`examples/main_demo.py`**
+1.  **[examples/main_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/main_demo.py)**
     *   Full tour: Schemas, Singletons, Hallucination Correction via Rollback.
 
-2.  **`examples/rag_hook_demo.py`**
+2.  **[examples/rag_hook_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/rag_hook_demo.py)**
     *   **Hybrid Memory Pattern.**
     *   Shows how to use MemState as the "Master DB" that automatically syncs text to a mock Vector DB for RAG.
     *   Demonstrates automatic cleanup: Delete a fact in SQL -> It vanishes from Vectors.
