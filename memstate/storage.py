@@ -1,38 +1,16 @@
 import copy
 import threading
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .backends.base import StorageBackend
 from .constants import Operation
 from .exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
+from .schemas import Fact, TxEntry
 
-
-class Fact(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    type: str
-    payload: dict[str, Any]
-    source: str | None = None
-    session_id: str | None = None
-    ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class TxEntry(BaseModel):
-    uuid: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    seq: int
-    ts: datetime
-    op: Operation
-    fact_id: str | None
-    fact_before: dict[str, Any] | None = None
-    fact_after: dict[str, Any] | None = None
-    actor: str | None = None
-    reason: str | None = None
-
-
-MemoryHook = Callable[[str, str, dict[str, Any] | None], None]
+MemoryHook = Callable[[Operation, str, Fact | None], None]
 
 
 class SchemaRegistry:
@@ -76,7 +54,7 @@ class MemoryStore:
     def add_hook(self, hook: MemoryHook):
         self._hooks.append(hook)
 
-    def _notify_hooks(self, op: Operation, fact_id: str, data: dict[str, Any] | None) -> None:
+    def _notify_hooks(self, op: Operation, fact_id: str, data: Fact | None) -> None:
         for hook in self._hooks:
             try:
                 hook(op, fact_id, data)
@@ -126,7 +104,7 @@ class MemoryStore:
 
             self.storage.save(fact.model_dump())
             self._log_tx(op, fact.id, existing, fact.model_dump(), actor, reason)
-            self._notify_hooks(op, fact.id, fact.model_dump())
+            self._notify_hooks(op, fact.id, fact)
             return fact.id
 
     def update(self, fact_id: str, patch: dict[str, Any], actor: str | None = None, reason: str | None = None) -> str:
@@ -142,7 +120,7 @@ class MemoryStore:
 
             self.storage.save(existing)
             self._log_tx(Operation.UPDATE, fact_id, before, existing, actor, reason)
-            self._notify_hooks(Operation.UPDATE, fact_id, existing)
+            self._notify_hooks(Operation.UPDATE, fact_id, Fact(**existing))
             return fact_id
 
     def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
@@ -153,7 +131,7 @@ class MemoryStore:
 
             self.storage.delete(fact_id)
             self._log_tx(Operation.DELETE, fact_id, existing, None, actor, reason)
-            self._notify_hooks(Operation.DELETE, fact_id, existing)
+            self._notify_hooks(Operation.DELETE, fact_id, Fact(**existing))
             return fact_id
 
     def get(self, fact_id: str) -> dict[str, Any] | None:
@@ -189,7 +167,7 @@ class MemoryStore:
 
                 promoted.append(fact_dict["id"])
                 self._log_tx(Operation.PROMOTE, fact_dict["id"], before, fact_dict, actor, reason)
-                self._notify_hooks(Operation.PROMOTE, fact_dict["id"], fact_dict)
+                self._notify_hooks(Operation.PROMOTE, fact_dict["id"], Fact(**fact_dict))
 
             return promoted
 

@@ -5,7 +5,8 @@ from pydantic import BaseModel
 
 from memstate.backends.inmemory import InMemoryStorage
 from memstate.exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
-from memstate.storage import Constraint, Fact, MemoryStore
+from memstate.schemas import Fact
+from memstate.storage import Constraint, MemoryStore
 
 
 class User(BaseModel):
