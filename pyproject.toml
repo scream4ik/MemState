@@ -1,6 +1,6 @@
 [project]
 name = "memstate"
-version = "0.3.0"
+version = "0.3.1"
 description = "ACID-like memory for Agents. Atomically syncs Pydantic models & Vector DBs with Git-style versioning."
 readme = "README.md"
 requires-python = ">=3.10"

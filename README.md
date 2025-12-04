@@ -85,9 +85,7 @@ pip install memstate[redis]
 ### 1. Basic Usage (Structured Memory)
 
 ```python
-from memstate.storage import MemoryStore, Constraint
-from memstate.schemas import Fact
-from memstate.backends.sqlite import SQLiteStorage
+from memstate import MemoryStore, Constraint, Fact, SQLiteStorage
 from pydantic import BaseModel
 
 # 1. Define schema
@@ -183,9 +181,10 @@ app = workflow.compile(checkpointer=checkpointer)
 
 Check the [examples/](https://github.com/scream4ik/MemState/tree/main/examples) folder:
 
-*   **[examples/rag_hook_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/rag_hook_demo.py)** - **See Chroma Sync in action.**
-*   **[examples/main_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/main_demo.py)** - Full tour of schemas and rollbacks.
-*   **[examples/langgraph_checkpoint_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/langgraph_checkpoint_demo.py)** - LangGraph persistence without API keys.
+*   **[examples/main_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/main_demo.py)** - Full tour: Schemas, Singletons, Hallucination Correction via Rollback.
+*   **[examples/rag_hook_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/rag_hook_demo.py)** - Shows how to use MemState as the "Master DB" that automatically syncs text to a mock Vector DB for RAG.
+*   **[examples/langgraph_checkpoint_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/langgraph_checkpoint_demo.py)** - Shows how to plug `MemStateCheckpointer` into a LangGraph workflow.
+*   **[examples/pizza_agent_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/pizza_agent_demo.py)** - A "Pizza Ordering" agent that separates Chat History from Business State (the JSON order).
 
 ---
 
