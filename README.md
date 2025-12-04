@@ -4,31 +4,35 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/memstate.svg)](https://pypi.org/project/memstate/)
 [![License](https://img.shields.io/pypi/l/memstate.svg)](https://github.com/scream4ik/MemState/blob/main/LICENSE)
 [![Tests](https://github.com/scream4ik/MemState/actions/workflows/test.yml/badge.svg)](https://github.com/scream4ik/MemState/actions)
-<!-- [![Downloads](https://static.pepy.tech/badge/memstate)](https://pepy.tech/project/memstate) -->
 
-**The "Git" for AI Agent Memory.**
-Transactional, type-safe state management with rollbacks for LangGraph & LangChain agents.
+**ACID-like Memory for AI Agents.**
+Atomically syncs Pydantic models & Vector DBs with Git-style versioning.
 
 ---
 
 ## ⚡ Why MemState?
 
-Most agent memory systems today are just wrappers around Vector DBs. This leads to:
-*   **Hallucinations:** The agent retrieves two contradictory facts (e.g., "User likes cats" vs "User hates cats") and guesses.
-*   **State Corruption:** No validation. Agents overwrite critical data (like IDs or balances) with garbage.
-*   **No Undo Button:** If an agent makes a mistake, you can't roll back the state. You have to wipe the memory.
+Building agents is easy. Keeping their state consistent is hard.
 
-**MemState is different.** It treats Agent Memory like a Database, not a text dump.
+Most memory systems are just wrappers around Vector DBs or JSON files. This leads to **Data Drift**:
+*   **Split Brain:** The agent updates a User Profile in SQL, but the Vector DB still holds the old embedding. Result: Hallucinations.
+*   **Dirty Reads:** A complex chain fails halfway, leaving the memory in a broken, partial state.
+*   **No Undo:** If an agent overwrites critical context, you can't hit "Ctrl+Z".
+
+**MemState brings database semantics to Agent Memory:**
+*   **⚛️ Atomicity:** Changes to Structured Data (SQL) and Semantic Data (Vectors) happen together or not at all.
+*   **🛡️ Isolation:** Changes in a session are invisible to the main memory until `committed`.
+*   **⏪ Time Travel:** Built-in history log allows you to rollback an agent's state to any point in time.
 
 ---
 
 ## ✨ Key Features
 
+*   **⚡ Real-time RAG Sync:** Automatically upserts/deletes vectors in **ChromaDB** when you commit facts. No more manual sync logic.
 *   **🛡️ Type-Safe:** Uses `Pydantic` schemas. If an agent tries to save a string into an `age: int` field, it fails *before* corruption happens.
-*   **⏪ Time Travel:** Every change is a transaction. You can `rollback(steps=1)` to undo an agent's mistake instantly.
+*   **⏪ Git-like Versioning:** Every change is a transaction. `rollback(steps=1)` undoes the last action instantly.
 *   **🔒 Constraints:** Enforce logic like "One User Profile per Email" (`Singleton`). No more duplicate profiles.
-*   **🔌 Hybrid Hooks:** Use MemState as the Source of Truth and automatically sync to Vector DBs (Chroma, Qdrant) via hooks.
-*   **🔍 JSON Querying:** Fast, structured search (`WHERE role = 'admin'`) via SQLite JSON1 extension. No need to embed everything.
+*   **🔌 Pluggable Backends:** SQLite, Redis, In-Memory.
 
 ---
 
@@ -39,17 +43,16 @@ flowchart LR
     User[User] -->|Input| Agent[AI Agent]
     Agent -->|1. Commit Fact| Mem{MemState}
 
-    subgraph Core [Logic Layer]
+    subgraph Core [ACID Layer]
         direction TB
         Schema[🛡️ Pydantic Schema]
-        Const[🔒 Constraints]
         Log[📝 Tx Log]
     end
 
-    Mem --> Schema --> Const --> Log
+    Mem --> Schema --> Log
 
-    Log -->|2. Persist| DB[(Database)]
-    Log -.->|3. Sync Hook| Vec[(Vector DB)]
+    Log -->|2. Atomic Write| DB[(SQLite/Redis)]
+    Log -.->|3. Auto-Sync| Vec[(ChromaDB)]
 ```
 
 ---
@@ -57,129 +60,139 @@ flowchart LR
 ## 🚀 Quick Start
 
 ### Installation
+
 ```bash
 pip install memstate
 ```
 
-For Redis support
+For **ChromaDB** support (RAG Sync):
 ```bash
-pip install memstate[redis]
+pip install memstate[chromadb]
 ```
 
-For LangGraph support
+For **LangGraph** support:
 ```bash
 pip install memstate[langgraph]
 ```
 
-### Basic Usage
+For **Redis** support:
+```bash
+pip install memstate[redis]
+```
+
+---
+
+### 1. Basic Usage (Structured Memory)
 
 ```python
-from memstate.storage import MemoryStore, Fact, Constraint
+from memstate.storage import MemoryStore, Constraint
+from memstate.schemas import Fact
 from memstate.backends.sqlite import SQLiteStorage
 from pydantic import BaseModel
 
-# 1. Define what your agent is allowed to remember
+# 1. Define schema
 class UserProfile(BaseModel):
     username: str
     level: int = 1
 
-# 2. Initialize Storage (SQLite)
+# 2. Initialize Storage
 storage = SQLiteStorage("agent_brain.db")
 memory = MemoryStore(storage)
-
-# 3. Register Schema with Rules
-# Rule: "username" must be unique. If it exists, UPDATE it (don't duplicate).
 memory.register_schema("user", UserProfile, Constraint(singleton_key="username"))
 
-# 4. Commit a Fact (Transactional)
+# 3. Commit a Fact (Transactional)
 user_fid = memory.commit(
     Fact(type="user", payload={"username": "neo", "level": 99}),
     actor="Agent_Smith"
 )
 
-# 5. Agent makes a mistake? Rollback!
-memory.update(fact_id=user_fid, patch={"payload": {"level": 0}})  # Oops
-print("Before rollback:", memory.query(typename="user")[0]['payload'])
-
-memory.rollback(1)
-print("After rollback:", memory.query(typename="user")[0]['payload'])
-# Level is back to 99.
+# 4. Rollback (Time Travel)
+memory.update(fact_id=user_fid, patch={"payload": {"level": 0}})  # Mistake
+memory.rollback(1)  # Level is back to 99
 ```
 
-### Using with LangGraph
+### 2. Automatic RAG Sync (ChromaDB)
 
-MemState includes a native checkpointer that persists your agent's graph state to SQLite/Redis.
+MemState ensures your Vector DB always matches your Structured DB.
+
+```python
+import chromadb
+from memstate.integrations.chroma import ChromaSyncHook
+
+# 1. Setup Chroma Client
+chroma_client = chromadb.Client()
+
+# 2. Create the Hook
+# This tells MemState: "When data changes, put 'content' field into Chroma"
+rag_hook = ChromaSyncHook(
+    client=chroma_client,
+    collection_name="agent_memory",
+    text_field="content",             # Field to embed
+    metadata_fields=["role", "topic"] # Fields to filter by
+)
+
+# 3. Attach to Memory
+memory = MemoryStore(storage)
+memory.add_hook(hook=rag_hook)
+
+# 4. That's it!
+# When you commit, it automatically upserts to Chroma.
+memory.commit(
+    Fact(type="memory", payload={"content": "The sky is blue", "topic": "nature"})
+)
+
+# Verify in Chroma
+coll = chroma_client.get_collection("agent_memory")
+print(coll.get()['documents'])  # ['The sky is blue']
+```
+
+### 3. Using with LangGraph
+
+MemState includes a native checkpointer that persists your agent's graph state.
 
 ```python
 from memstate.integrations.langgraph import MemStateCheckpointer
-from memstate.storage import MemoryStore
-from memstate.backends.sqlite import SQLiteStorage
 
-# Initialize
-storage = SQLiteStorage("agent_brain.db")
-memory = MemoryStore(storage)
 checkpointer = MemStateCheckpointer(memory=memory)
-
 # Compile your graph
 app = workflow.compile(checkpointer=checkpointer)
-
-# Run with thread_id - state is automatically saved!
-config = {"configurable": {"thread_id": "session_1"}}
-inputs = "I would like to order pizza."
-app.invoke(inputs, config=config)
 ```
 
 ---
 
 ## 💡 Use Cases
 
-### 1. Financial & Legal Bots (Compliance)
+### 1. Hybrid Search (The "Holy Grail")
+**Problem:** User asks "Who is the admin?". Vector search fails because "admin" isn't semantically close to a name.
+**Solution:** MemState keeps structured data structured.
+*   Use **SQL** for precise queries: `memory.query(role="admin")`.
+*   Use **Vector** for fuzzy queries: `chroma.query("What do we know about cats?")`.
+*   Both are always in sync.
+
+### 2. Financial & Legal Bots (Compliance)
 **Problem:** An LLM hallucinates a loan interest rate.
 **Solution:** Use `Immutable` constraints for signed contracts. Use `Transaction Logs` to audit exactly *when* and *why* a fact was changed.
 
-### 2. RPGs & Interactive Fiction
-**Problem:** The player picked up a key, used it, then lost it. The LLM forgets the door is now unlocked.
-**Solution:** Use MemState to track the World State (`door_status: open`). If the player dies, use `rollback()` to reset the state to the last checkpoint perfectly.
-
-### 3. Form Filling (Slot Filling)
-**Problem:** User corrects themselves ("My car is a BMW... wait, no, an Audi"). Vector DBs return both.
-**Solution:** Use `Singleton` constraint on `car_model`. The correction automatically overwrites the old fact. The agent only sees the latest truth.
+### 3. RPGs & Interactive Fiction
+**Problem:** The player picked up a key, then died. The agent forgets the key is gone.
+**Solution:** Use `rollback()` to reset the world state to the last checkpoint perfectly.
 
 ---
 
 ## 📂 Demos
 
-Check the [examples/](https://github.com/scream4ik/MemState/tree/main/examples) folder for runnable scripts:
+Check the [examples/](https://github.com/scream4ik/MemState/tree/main/examples) folder:
 
-1.  **[examples/main_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/main_demo.py)**
-    *   Full tour: Schemas, Singletons, Hallucination Correction via Rollback.
-
-2.  **[examples/rag_hook_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/rag_hook_demo.py)**
-    *   **Hybrid Memory Pattern.**
-    *   Shows how to use MemState as the "Master DB" that automatically syncs text to a mock Vector DB for RAG.
-    *   Demonstrates automatic cleanup: Delete a fact in SQL -> It vanishes from Vectors.
-
-3.  **[examples/langgraph_checkpoint_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/langgraph_checkpoint_demo.py)**
-    *   **LangGraph Persistence (Zero-config).**
-    *   Shows how to plug `MemStateCheckpointer` into a LangGraph workflow.
-    *   Demonstrates pausing, resuming, and persisting agent threads to database.
-    *   *Runs locally without API keys.*
-
-4.  **[examples/pizza_agent_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/pizza_agent_demo.py)**
-    *   **Advanced Stateful Agent.**
-    *   A "Pizza Ordering" agent that separates Chat History from Business State (the JSON order).
-    *   **Resilience:** Simulate a server crash and resume the order exactly where you left off.
-    *   **Audit:** Shows how to query the SQL log to see exactly when the user changed "Pepperoni" to "Mushrooms".
+*   **[examples/rag_hook_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/rag_hook_demo.py)** - **See Chroma Sync in action.**
+*   **[examples/main_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/main_demo.py)** - Full tour of schemas and rollbacks.
+*   **[examples/langgraph_checkpoint_demo.py](https://github.com/scream4ik/MemState/blob/main/examples/langgraph_checkpoint_demo.py)** - LangGraph persistence without API keys.
 
 ---
 
 ## 🛠 Status
-**Alpha / MVP.**
-Ready for local development.
+**Alpha.** Ready for local development.
 
-Supports: `InMemoryStorage`, `RedisStorage`, `SQLiteStorage`.
-
-Planned: `PostgresStorage`.
+Supports: `InMemoryStorage`, `RedisStorage`, `SQLiteStorage`, `ChromaDB`.
 
 ---
 
@@ -192,9 +205,3 @@ Licensed under the [Apache 2.0 License](LICENSE).
 ## 🤝 Contributing
 
 Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
----
-
-## ⭐️ Like the idea?
-
-Star the repo and share feedback — we’re building in the open.

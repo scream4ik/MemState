@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-12-03
+
+### Added
+- **RAG Synchronization:** Introduced `ChromaSyncHook` to keep structured state and Vector DBs in perfect sync.
+- **Transactional Vector Ops:** Vector embeddings are now atomic — they are only updated/deleted upon `COMMIT`, preventing "ghost data" from draft sessions.
+- **Flexible Mapping:** Added support for custom `text_formatter` and `metadata_formatter` to control how Pydantic models map to vector documents.
+- New installation extras: `pip install memstate[chromadb]`.
+
+### Changed
+- **Positioning:** Rebranded documentation to focus on **ACID-like atomicity** for hybrid memory (SQL + Vector), moving away from the generic "Git for memory" messaging.
+
 ## [0.2.0] - 2025-11-26
 
 ### Added
