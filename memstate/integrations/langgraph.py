@@ -13,7 +13,8 @@ try:
 except ImportError:
     raise ImportError("pip install langgraph")
 
-from memstate.storage import Fact, MemoryStore
+from memstate.schemas import Fact
+from memstate.storage import MemoryStore
 
 
 class MemStateCheckpointer(BaseCheckpointSaver[str]):

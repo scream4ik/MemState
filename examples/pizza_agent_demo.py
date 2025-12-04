@@ -12,9 +12,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from memstate.backends.inmemory import InMemoryStorage
+from memstate import InMemoryStorage, MemoryStore
 from memstate.integrations.langgraph import MemStateCheckpointer
-from memstate.storage import MemoryStore
 
 # --- 1. Business Logic (Tools) ---
 # Note: These functions don't know anything about LLM. They simply modify data.

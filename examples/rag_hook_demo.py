@@ -4,8 +4,7 @@ from typing import Any, Dict, List
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from memstate.backends.inmemory import InMemoryStorage
-from memstate.storage import Fact, MemoryStore
+from memstate import Fact, InMemoryStorage, MemoryStore
 
 # --- Simulated Vector Store ---
 # In real life, this would use OpenAI Embeddings and Qdrant/Chroma

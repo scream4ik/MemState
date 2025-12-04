@@ -1,7 +1,7 @@
 from typing import Any, Callable
 
-from ..constants import Operation
-from ..schemas import Fact
+from memstate.constants import Operation
+from memstate.schemas import Fact
 
 try:
     from chromadb import EmbeddingFunction

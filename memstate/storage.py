@@ -5,10 +5,10 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
 
-from .backends.base import StorageBackend
-from .constants import Operation
-from .exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
-from .schemas import Fact, TxEntry
+from memstate.backends.base import StorageBackend
+from memstate.constants import Operation
+from memstate.exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
+from memstate.schemas import Fact, TxEntry
 
 MemoryHook = Callable[[Operation, str, Fact | None], None]
 

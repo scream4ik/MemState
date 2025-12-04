@@ -2,9 +2,8 @@ import pytest
 
 langgraph = pytest.importorskip("langgraph")
 
-from memstate.backends.inmemory import InMemoryStorage
+from memstate import InMemoryStorage, MemoryStore
 from memstate.integrations.langgraph import MemStateCheckpointer
-from memstate.storage import MemoryStore
 
 
 @pytest.fixture

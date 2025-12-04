@@ -1,7 +1,7 @@
 import json
 from typing import Any, Union
 
-from .base import StorageBackend
+from memstate.backends.base import StorageBackend
 
 try:
     import redis

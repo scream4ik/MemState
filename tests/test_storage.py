@@ -3,10 +3,16 @@ from unittest.mock import ANY, Mock
 import pytest
 from pydantic import BaseModel
 
-from memstate.backends.inmemory import InMemoryStorage
-from memstate.exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
-from memstate.schemas import Fact
-from memstate.storage import Constraint, MemoryStore
+from memstate import (
+    ConflictError,
+    Constraint,
+    Fact,
+    HookError,
+    InMemoryStorage,
+    MemoryStore,
+    MemoryStoreError,
+    ValidationFailed,
+)
 
 
 class User(BaseModel):

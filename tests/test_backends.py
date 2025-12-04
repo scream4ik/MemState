@@ -1,9 +1,8 @@
 import fakeredis
 import pytest
 
-from memstate.backends.inmemory import InMemoryStorage
+from memstate import InMemoryStorage, SQLiteStorage
 from memstate.backends.redis import RedisStorage
-from memstate.backends.sqlite import SQLiteStorage
 
 
 @pytest.fixture(params=["inmemory", "sqlite", "redis"])

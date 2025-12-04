@@ -2,9 +2,8 @@ import pytest
 
 chromadb = pytest.importorskip("chromadb")
 
-from memstate.constants import Operation
+from memstate import Fact, Operation
 from memstate.integrations.chroma import ChromaSyncHook
-from memstate.schemas import Fact
 
 
 @pytest.fixture

@@ -9,9 +9,8 @@ from langchain_core.tools import tool
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from memstate.backends.inmemory import InMemoryStorage
+from memstate import InMemoryStorage, MemoryStore
 from memstate.integrations.langgraph import MemStateCheckpointer
-from memstate.storage import MemoryStore
 
 storage = InMemoryStorage()
 memory = MemoryStore(storage)

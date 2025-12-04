@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .constants import Operation
+from memstate.constants import Operation
 
 
 class Fact(BaseModel):

@@ -1,6 +1,6 @@
 import threading
 
-from memstate.backends.sqlite import SQLiteStorage
+from memstate import SQLiteStorage
 
 
 def test_sqlite_concurrent_writes(tmp_path):

@@ -5,8 +5,7 @@ from pydantic import BaseModel, Field
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from memstate.backends.inmemory import InMemoryStorage
-from memstate.storage import Constraint, Fact, MemoryStore
+from memstate import Constraint, Fact, InMemoryStorage, MemoryStore
 
 # --- 1. Defining Schemes ---
 

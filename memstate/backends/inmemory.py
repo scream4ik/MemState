@@ -1,7 +1,7 @@
 import threading
 from typing import Any
 
-from .base import StorageBackend
+from memstate.backends.base import StorageBackend
 
 
 class InMemoryStorage(StorageBackend):

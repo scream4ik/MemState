@@ -2,10 +2,8 @@ import pytest
 
 chromadb = pytest.importorskip("chromadb")
 
-from memstate.backends.inmemory import InMemoryStorage
+from memstate import Fact, InMemoryStorage, MemoryStore
 from memstate.integrations.chroma import ChromaSyncHook
-from memstate.schemas import Fact
-from memstate.storage import MemoryStore
 
 
 def test_e2e_memory_store_syncs_to_chroma():
