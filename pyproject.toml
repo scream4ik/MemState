@@ -1,14 +1,27 @@
 [project]
 name = "memstate"
-version = "0.2.0"
-description = "Transactional, type-safe state management for LLM Agents. The 'Git' for AI memory."
+version = "0.3.0"
+description = "ACID-like memory for Agents. Atomically syncs Pydantic models & Vector DBs with Git-style versioning."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
   { name = "Slava Kurachevsky" }
 ]
-keywords = ["ai", "agents", "memory", "state-management", "llm", "langchain", "langgraph", "pydantic", "sqlite"]
+keywords = [
+    "ai",
+    "agents",
+    "memory",
+    "state-management",
+    "llm",
+    "langchain",
+    "langgraph",
+    "pydantic",
+    "sqlite",
+    "acid",
+    "atomicity",
+    "consistency"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
