@@ -68,13 +68,16 @@ class MemoryStore:
         ephemeral: bool = False,
         actor: str | None = None,
         reason: str | None = None,
-    ):
+    ) -> str:
         with self._lock:
             validated_payload = self._schema_registry.validate(fact.type, fact.payload)
             fact.payload = validated_payload
 
             if session_id:
                 fact.session_id = session_id
+
+            previous_state = None
+            op = Operation.COMMIT
 
             constraint = self._constraints.get(fact.type)
 
@@ -86,26 +89,37 @@ class MemoryStore:
 
                     if matches:
                         existing_raw = matches[0]
-                        existing_id = existing_raw["id"]
-
                         if constraint.immutable:
                             raise ConflictError(f"Immutable constraint violation: {fact.type}:{key_val}")
 
-                        before = copy.deepcopy(existing_raw)
-                        fact.id = existing_id
-                        after = fact.model_dump()
+                        # We found a duplicate, so this is an UPDATE of an existing one
+                        previous_state = copy.deepcopy(existing_raw)
+                        fact.id = existing_raw["id"]  # We replace the ID of the new fact with the old one
+                        op = Operation.UPDATE
 
-                        self.storage.save(after)
-                        self._log_tx(Operation.UPDATE, existing_id, before, after, actor, reason)
-                        return existing_id
+            if op != Operation.UPDATE:
+                existing = self.storage.load(fact.id)
+                if existing:
+                    previous_state = copy.deepcopy(existing)
+                    op = Operation.UPDATE
+                else:
+                    op = Operation.COMMIT_EPHEMERAL if ephemeral else Operation.COMMIT
 
-            existing = self.storage.load(fact.id)
-            op = Operation.UPDATE if existing else (Operation.COMMIT_EPHEMERAL if ephemeral else Operation.COMMIT)
+            try:
+                new_state = fact.model_dump()
+                self.storage.save(new_state)
+                self._log_tx(op, fact.id, previous_state, new_state, actor, reason)
+                self._notify_hooks(op, fact.id, fact)
 
-            self.storage.save(fact.model_dump())
-            self._log_tx(op, fact.id, existing, fact.model_dump(), actor, reason)
-            self._notify_hooks(op, fact.id, fact)
-            return fact.id
+                return fact.id
+
+            except HookError as e:
+                if op == Operation.UPDATE and previous_state:
+                    self.storage.save(previous_state)
+                else:
+                    self.storage.delete(fact.id)
+
+                raise e
 
     def update(self, fact_id: str, patch: dict[str, Any], actor: str | None = None, reason: str | None = None) -> str:
         with self._lock:

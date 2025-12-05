@@ -109,8 +109,7 @@ def test_hook_failure_raises_error(memory):
         memory.commit(Fact(type="user", payload={"name": "Survivor", "age": 50}))
 
     facts = memory.query(filters={"payload.name": "Survivor"})
-    assert len(facts) == 1
-    assert facts[0]["payload"]["name"] == "Survivor"
+    assert len(facts) == 0
 
 
 def test_ephemeral_session_discard(memory):

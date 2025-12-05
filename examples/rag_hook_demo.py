@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Dict, List
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -45,11 +45,11 @@ class RAGSyncHook:
         # We are only interested in facts of the "knowledge_base" type.
         self.target_types = {"knowledge_base", "chat_log"}
 
-    def __call__(self, op: str, fact_id: str, data: Dict[str, Any] | None):
+    def __call__(self, op: str, fact_id: str, data: Fact | None):
         # data is the state of the fact. If DELETE, this is the state BEFORE deletion.
 
         # Type checking (do not vectorize system data)
-        if not data or data.get("type") not in self.target_types:
+        if not data or data.type not in self.target_types:
             return
 
         # Processing of deletion
@@ -58,7 +58,7 @@ class RAGSyncHook:
             return
 
         # Text extraction for vectorization
-        payload = data.get("payload", {})
+        payload = data.payload
         # Trying to find a text field
         text_content = payload.get("content") or payload.get("message") or payload.get("summary")
 
