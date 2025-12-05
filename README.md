@@ -1,4 +1,4 @@
-# MemState — Transactional Memory for AI Agents
+# MemState - Transactional Memory for AI Agents
 
 [![PyPI version](https://img.shields.io/pypi/v/memstate.svg)](https://pypi.org/project/memstate/)
 [![Python versions](https://img.shields.io/pypi/pyversions/memstate.svg)](https://pypi.org/project/memstate/)
@@ -10,6 +10,10 @@ Ensures Structured Data (SQL) and Semantic Data (Vector Embeddings) stay synchro
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/scream4ik/MemState/main/assets/docs/demo.gif" width="100%" />
+  <br>
+  <strong>Demo:</strong> Without MemState → memory gets inconsistent ❌ &nbsp;&nbsp;|&nbsp;&nbsp; With MemState → atomic, type-safe, rollbackable agent state ✅
+  <br>
+  <em>All demo scripts are available in the <code>examples/</code> folder for reproducibility.</em>
 </p>
 
 ---
