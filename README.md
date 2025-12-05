@@ -76,6 +76,7 @@ memory.add_hook(hook=hook)
 # Persists to SQLite AND upserts to ChromaDB.
 # If either fails, both are rolled back.
 memory.commit(Fact(
+    type="user_feedback",
     payload={
         "content": "User prefers vegetarian options",
         "role": "profile"

@@ -1,7 +1,7 @@
 [project]
 name = "memstate"
 version = "0.3.2"
-description = "ACID-like memory for Agents. Atomically syncs Pydantic models & Vector DBs with Git-style versioning."
+description = "Transactional Memory for AI Agents - Keep SQL and Vector DBs in sync with ACID-like guarantees"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
