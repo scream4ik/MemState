@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2025-12-04
+
+### Fixed
+- **Critical Atomicity Fix:** The `commit()` method now implements a proper "Compensating Transaction" pattern.
+    - Previously, if a vector sync hook (e.g., ChromaDB) failed, the SQL data remained committed, breaking the "ACID-like" promise.
+    - Now, if a hook fails, the SQL transaction is automatically rolled back (or restored to the previous state).
+- **Singleton Logic:** Fixed a bug where updating a Singleton fact (e.g., "One User Profile") would return early and skip vector synchronization.
+
+### Documentation 📚
+- **New Positioning:** Updated README to focus on "Transactional Memory" and "Predictability" rather than generic agent state.
+- **Demo:** Added a video demonstration (GIF) showing MemState preventing hallucinations vs Manual Sync.
+
 ## [0.3.1] - 2025-12-04
 
 ### Changed
