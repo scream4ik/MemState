@@ -1,4 +1,6 @@
-# MemState - Transactional Memory for AI Agents
+# MemState — Transactional Memory for AI Agents
+
+**Keeps SQL and Vector DBs in sync. No drift. No ghost data. ACID-like consistency for agent state.**
 
 [![PyPI version](https://img.shields.io/pypi/v/memstate.svg)](https://pypi.org/project/memstate/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/memstate?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/memstate)
@@ -6,8 +8,55 @@
 [![License](https://img.shields.io/pypi/l/memstate.svg)](https://github.com/scream4ik/MemState/blob/main/LICENSE)
 [![Tests](https://github.com/scream4ik/MemState/actions/workflows/test.yml/badge.svg)](https://github.com/scream4ik/MemState/actions)
 
-**ACID-like consistency layer for agent state.**
-Ensures Structured Data (SQL) and Semantic Data (Vector Embeddings) stay synchronized, reversible, and type-safe.
+---
+
+## Why MemState exists
+
+AI agents usually store memory in two places:
+
+* **SQL** (structured facts)
+* **Vector DB** (semantic search context)
+
+These two **drift** easily:
+
+### ❌ Example of real-world corruption
+
+```python
+# Step 1: SQL write succeeds
+db.update("user_city", "London")
+
+# Step 2: Vector DB update fails (timeout)
+vectors.upsert("User lives in London")  # ❌ failed
+
+# Final state:
+SQL: London
+Vectors: New York
+→ Agent retrieves stale context and behaves unpredictably
+```
+
+Failures, crashes, retries, malformed payloads — all silently accumulate “ghost vectors” and inconsistent state.
+
+**Vector DBs don't have transactions.
+JSON memory has no schema.
+Agents drift over time.**
+
+---
+
+## What MemState does
+
+MemState makes all memory operations **atomic**:
+
+```
+SQL write + Vector upsert
+→ succeed together or rollback together
+```
+
+Also provides:
+
+* **Rollback**: undo N steps (SQL + vectors)
+* **Type safety**: Pydantic schema validation
+* **Append-only Fact Log**: full version history
+* **Crash safety**: WAL replay for vector sync
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/scream4ik/MemState/main/assets/docs/demo.gif" width="100%" />
@@ -19,34 +68,7 @@ Ensures Structured Data (SQL) and Semantic Data (Vector Embeddings) stay synchro
 
 ---
 
-## The Problem: Agent State Corruption
-
-In most frameworks, agent state is treated as a second-class citizen:
-*   Scattered JSON blobs.
-*   Ad-hoc RAG embeddings that drift from the source of truth.
-*   Inconsistent partial updates during failures.
-*   No rollback mechanisms.
-
-This leads to **Data Drift**: The SQL database says one thing, the Vector DB says another. The agent becomes unpredictable and hallucinates because its memory is fractured.
-
-**Agents need reliable state. Not a document dump.**
-
----
-
-## MemState: A Consistency Layer
-
-MemState treats agent memory as a transactional system, offering database semantics for application logic:
-
-*   **⚛️ Atomicity** — SQL and Vector DB changes succeed or rollback together.
-*   **🛡️ Isolation** — Intermediate steps in a workflow never leak to the main memory.
-*   **⏪ Rollback** — Revert any number of committed steps instantly.
-*   **🔒 Schema Safety** — Pydantic validation prevents data corruption at runtime.
-
-It is the missing architecture between your Agent Logic and your Storage.
-
----
-
-## Quick Example
+## Minimal example (copy–paste)
 
 ```bash
 pip install memstate[chromadb]
@@ -57,89 +79,89 @@ from memstate import MemoryStore, Fact, SQLiteStorage
 from memstate.integrations.chroma import ChromaSyncHook
 import chromadb
 
-# 1. Setup Storage
+# Storage
 sqlite = SQLiteStorage("state.db")
 chroma = chromadb.Client()
 
-# 2. Define Transactional Sync
-# This hook binds the Vector DB to the Atomic Lifecycle of the MemoryStore
+# Hook: sync vectors atomically with SQL
 hook = ChromaSyncHook(
     client=chroma,
-    collection_name="agent_memory",
+    collection_name="memory",
     text_field="content",
-    metadata_fields=["role", "topic"]
+    metadata_fields=["role"]
 )
 
-memory = MemoryStore(sqlite)
-memory.add_hook(hook=hook)
+mem = MemoryStore(sqlite)
+mem.add_hook(hook)
 
-# 3. Atomic Write
-# Persists to SQLite AND upserts to ChromaDB.
-# If either fails, both are rolled back.
-memory.commit(Fact(
-    type="user_feedback",
-    payload={
-        "content": "User prefers vegetarian options",
-        "role": "profile"
-    }
+# Atomic commit: SQL + Vectors
+mem.commit(Fact(
+    type="profile_update",
+    payload={"content": "User prefers vegetarian", "role": "preference"}
 ))
 
-# 4. Rollback
-# Restores SQLite state AND deletes the vector from ChromaDB.
-memory.rollback(1)
+# Rollback: removes SQL row + vector entry
+mem.rollback(1)
 ```
 
 ---
 
-## Why this matters
+## How MemState compares
 
-Standard tooling stores memory as a single opaque document. This breaks for:
-*   **Long-running agents** where state accumulates errors.
-*   **Multi-step workflows** requiring intermediate checkpoints.
-*   **Compliance/Audit systems** needing a ledger of changes.
-*   **Hybrid Search** where structured state and RAG context must match.
-
-MemState introduces **determinism** to your agent's behavior.
+| Operation                   | Without MemState     | With MemState       |
+| --------------------------- | -------------------- | ------------------- |
+| Vector DB write fails       | ❌ SQL+Vector diverge | ✔ auto-rollback     |
+| Partial workflow crash      | ❌ ghost vectors      | ✔ consistent        |
+| LLM outputs malformed JSON  | ❌ corrupt state      | ✔ schema validation |
+| Need to undo last N actions | ❌ impossible         | ✔ rollback()        |
+| Need deterministic behavior | ❌ drift              | ✔ ACID-like         |
 
 ---
 
-## Integrates with LangGraph
+## Ideal for
 
-Drop-in replacement for the default checkpointer.
-Your graph state becomes structured, queryable, and transaction-safe.
+* **Long-running agents**
+* **LangGraph projects** needing reliable state
+* **RAG systems** where DB data must match embeddings
+* **Local-first setups** (SQLite + Chroma/Qdrant/FAISS)
+
+---
+
+## LangGraph integration
 
 ```python
 from memstate.integrations.langgraph import MemStateCheckpointer
 
-checkpointer = MemStateCheckpointer(memory=memory)
+checkpointer = MemStateCheckpointer(memory=mem)
 app = workflow.compile(checkpointer=checkpointer)
 ```
 
 ---
 
-## Key Capabilities
+## Storage backends
 
-*   **Hybrid Transactional Storage** (SQL + Vectors)
-*   **Pydantic Schema Enforcement**
-*   **Fact-based Versioning** (Append-only Log)
-*   **Multi-step Atomic Commits**
-*   **Pluggable Backends:** SQLite (JSON1), Redis, In-Memory
+* SQLite (JSON1)
+* Redis
+* In-memory
+* Custom backends via simple interface
+
+Vector sync hooks: ChromaDB (more coming)
 
 ---
 
 ## Status
 
-**Alpha.** The API is stable enough for building reliable agent prototypes.
-We follow Semantic Versioning.
+**Alpha.** API stable enough for prototypes and local agents.
+Semantic Versioning.
 
 ---
 
-## 📄 License
+## License
 
 Licensed under the [Apache 2.0 License](LICENSE).
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
