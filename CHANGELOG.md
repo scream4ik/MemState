@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2025-12-12
+
+### Added
+- **New `commit_model` API:** You can now pass Pydantic instances directly to memory.
+  - No more manual dictionary dumping: `mem.commit_model(user)` instead of `mem.commit(Fact(type="user", payload=user.dict()))`.
+  - Automatically resolves registered schema types.
+  - Supports both INSERT (auto ID) and UPDATE (explicit `fact_id`).
+
+### Documentation
+- **README Overhaul:** rewritten to focus on the "Mental Model" of transactional memory and the physical physics of "Data Drift".
+- **Refactored Examples:** All examples (`examples/`) updated to use the cleaner `commit_model` syntax.
+
+### Fixed
+- **Lifecycle Logic:** Ensured `commit_model` correctly handles updates when `fact_id` is provided (previously defaulted to creating duplicates).
+
 ## [0.3.2] - 2025-12-04
 
 ### Fixed
@@ -13,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Now, if a hook fails, the SQL transaction is automatically rolled back (or restored to the previous state).
 - **Singleton Logic:** Fixed a bug where updating a Singleton fact (e.g., "One User Profile") would return early and skip vector synchronization.
 
-### Documentation 📚
+### Documentation
 - **New Positioning:** Updated README to focus on "Transactional Memory" and "Predictability" rather than generic agent state.
 - **Demo:** Added a video demonstration (GIF) showing MemState preventing hallucinations vs Manual Sync.
 
