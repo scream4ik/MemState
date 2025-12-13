@@ -122,3 +122,27 @@ def test_ephemeral_session_discard(memory):
 
     remaining = memory.query(filters={"session_id": session_id})
     assert len(remaining) == 0
+
+
+def test_commit_model_success(memory):
+    schema_name = "user_v1"
+    memory.register_schema(schema_name, User)
+
+    user = User(name="Survivor", age=50)
+
+    fact_id = memory.commit_model(user, actor="system", session_id="session_1")
+
+    saved_fact = memory.storage.load(fact_id)
+
+    assert saved_fact is not None
+    assert saved_fact["type"] == schema_name
+    assert saved_fact["payload"] == {"name": "Survivor", "age": 50}
+
+    assert saved_fact["session_id"] == "session_1"
+
+
+def test_commit_model_raises_on_unregistered(memory):
+    unknown = User(name="Survivor", age=50)
+
+    with pytest.raises(MemoryStoreError, match="is not registered"):
+        memory.commit_model(unknown)

@@ -30,6 +30,15 @@ class SchemaRegistry:
         except ValidationError as e:
             raise ValidationFailed(str(e))
 
+    def get_type_by_model(self, model_class: type[BaseModel]) -> str | None:
+        """
+        Reverse lookup: finds the registered type name for a given Pydantic class.
+        """
+        for type_name, cls in self._schemas.items():
+            if cls == model_class:
+                return type_name
+        return None
+
 
 class Constraint:
     def __init__(self, singleton_key: str | None = None, immutable: bool = False) -> None:
@@ -120,6 +129,30 @@ class MemoryStore:
                     self.storage.delete(fact.id)
 
                 raise e
+
+    def commit_model(
+        self,
+        model: BaseModel,
+        session_id: str | None = None,
+        ephemeral: bool = False,
+        actor: str | None = None,
+        reason: str | None = None,
+    ) -> str:
+        """
+        Commit a Pydantic model instance directly.
+        Auto-detects the schema type from the registry.
+        """
+        schema_type = self._schema_registry.get_type_by_model(model.__class__)
+
+        if not schema_type:
+            raise MemoryStoreError(
+                f"Model class '{model.__class__.__name__}' is not registered. "
+                f"Please call memory.register_schema('your_type_name', {model.__class__.__name__}) first."
+            )
+
+        fact = Fact(type=schema_type, payload=model.model_dump())
+
+        return self.commit(fact, session_id=session_id, ephemeral=ephemeral, actor=actor, reason=reason)
 
     def update(self, fact_id: str, patch: dict[str, Any], actor: str | None = None, reason: str | None = None) -> str:
         with self._lock:
