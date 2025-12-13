@@ -1,6 +1,7 @@
 import pytest
 from pydantic import BaseModel, Field
-from memstate import MemoryStore, InMemoryStorage
+
+from memstate import InMemoryStorage, MemoryStore
 
 
 class UserProfileV1(BaseModel):

@@ -27,7 +27,7 @@ class SchemaRegistry:
             return payload
         try:
             instance = model_cls.model_validate(payload)
-            return instance.model_dump()
+            return instance.model_dump(mode="json")
         except ValidationError as e:
             raise ValidationFailed(str(e))
 
@@ -116,7 +116,7 @@ class MemoryStore:
                     op = Operation.COMMIT_EPHEMERAL if ephemeral else Operation.COMMIT
 
             try:
-                new_state = fact.model_dump()
+                new_state = fact.model_dump(mode="json")
                 self.storage.save(new_state)
                 self._log_tx(op, fact.id, previous_state, new_state, actor, reason)
                 self._notify_hooks(op, fact.id, fact)
@@ -153,7 +153,9 @@ class MemoryStore:
                 f"Please call memory.register_schema('your_type_name', {model.__class__.__name__}) first."
             )
 
-        fact = Fact(id=fact_id or str(uuid.uuid4()), type=schema_type, payload=model.model_dump(), source=source)
+        fact = Fact(
+            id=fact_id or str(uuid.uuid4()), type=schema_type, payload=model.model_dump(mode="json"), source=source
+        )
 
         return self.commit(fact, session_id=session_id, ephemeral=ephemeral, actor=actor, reason=reason)
 
@@ -279,4 +281,4 @@ class MemoryStore:
             actor=actor,
             reason=reason,
         )
-        self.storage.append_tx(tx.model_dump())
+        self.storage.append_tx(tx.model_dump(mode="json"))

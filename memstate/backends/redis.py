@@ -6,14 +6,11 @@ from memstate.backends.base import StorageBackend
 try:
     import redis
 except ImportError:
-    redis = None  # type: ignore[assignment]
+    raise ImportError("redis package is required. pip install redis")
 
 
 class RedisStorage(StorageBackend):
     def __init__(self, client_or_url: Union[str, "redis.Redis"] = "redis://localhost:6379/0") -> None:
-        if not redis:
-            raise ImportError("redis package is required. pip install redis")
-
         self.prefix = "mem:"
 
         if isinstance(client_or_url, str):

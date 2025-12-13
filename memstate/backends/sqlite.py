@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 import threading
 from typing import Any
@@ -28,6 +29,7 @@ class SQLiteStorage(StorageBackend):
         with self._lock:
             c = self._conn.cursor()
             c.execute("PRAGMA journal_mode=WAL;")
+            c.execute("PRAGMA synchronous=NORMAL;")
 
             c.execute(
                 """
@@ -41,6 +43,7 @@ class SQLiteStorage(StorageBackend):
                       """
             )
             c.execute("CREATE INDEX IF NOT EXISTS idx_facts_type ON facts(type)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_facts_session ON facts(json_extract(data, '$.session_id'))")
             c.execute(
                 """
                       CREATE TABLE IF NOT EXISTS tx_log
@@ -93,6 +96,8 @@ class SQLiteStorage(StorageBackend):
 
         if json_filters:
             for key, value in json_filters.items():
+                if not re.match(r"^[a-zA-Z0-9_.]+$", key):
+                    raise ValueError(f"Invalid characters in filter key: {key}")
                 query += f" AND json_extract(data, '$.{key}') = ?"
                 params.append(value)
 
@@ -125,14 +130,10 @@ class SQLiteStorage(StorageBackend):
         with self._lock:
             c = self._conn.cursor()
 
-            c.execute("SELECT id FROM facts WHERE json_extract(data, '$.session_id') = ?", (session_id,))
+            c.execute("DELETE FROM facts WHERE json_extract(data, '$.session_id') = ? RETURNING id", (session_id,))
             rows = c.fetchall()
             ids = [row["id"] for row in rows]
-
-            if ids:
-                c.execute("DELETE FROM facts WHERE json_extract(data, '$.session_id') = ?", (session_id,))
-                self._conn.commit()
-
+            self._conn.commit()
             return ids
 
     def close(self):
