@@ -2,10 +2,17 @@ import os
 import shutil
 
 import chromadb
+from pydantic import BaseModel
 
-from memstate import Fact, MemoryStore
+from memstate import MemoryStore
 from memstate.backends.sqlite import SQLiteStorage
 from memstate.integrations.chroma import ChromaSyncHook
+
+
+class Project(BaseModel):
+    content: str
+    status: str
+    author: str
 
 
 def clean_environment():
@@ -56,6 +63,7 @@ def run_demo():
 
     memory = MemoryStore(sqlite)
     memory.add_hook(hook)
+    memory.register_schema("project", Project)
     collection = chroma_client.get_collection("docs_memory")
 
     # =========================================================================
@@ -63,11 +71,8 @@ def run_demo():
     # =========================================================================
     print(f"1️⃣  Creating new document...")
 
-    fact = Fact(
-        type="doc",
-        payload={"content": "Project Alpha is currently in planning phase.", "status": "draft", "author": "Alice"},
-    )
-    doc_id = memory.commit(fact)
+    project = Project(content="Project Alpha is currently in planning phase.", status="draft", author="Alice")
+    doc_id = memory.commit_model(model=project)
 
     print_state("AFTER INSERT", doc_id, sqlite, collection)
 
@@ -77,17 +82,12 @@ def run_demo():
     print(f"\n2️⃣  Updating document (content + metadata)...")
 
     # We use the SAME fact ID to perform an update
-    memory.commit(
-        Fact(
-            id=doc_id,
-            type="doc",
-            payload={
-                "content": "Project Alpha has been CANCELLED.",  # Content changed
-                "status": "archived",  # Metadata changed
-                "author": "Alice",
-            },
-        )
+    updated_project = Project(
+        content="Project Alpha has been CANCELLED.",  # Content changed
+        status="archived",  # Metadata changed
+        author="Alice",
     )
+    memory.commit_model(fact_id=doc_id, model=updated_project)
 
     print_state("AFTER UPDATE", doc_id, sqlite, collection)
 

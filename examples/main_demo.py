@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from memstate import Constraint, Fact, InMemoryStorage, MemoryStore
+from memstate import Constraint, InMemoryStorage, MemoryStore
 
 # --- 1. Defining Schemes ---
 
@@ -45,17 +45,8 @@ print("🚀 Agent Memory initialized.\n")
 
 # Scenario 1: Agent learns about the user
 print("--- Step 1: Creating User Profile ---")
-fact_profile = Fact(
-    type="user_profile",
-    payload={
-        "email": "alex@corp.com",
-        "full_name": "Alex Dev",
-        "role": "Backend",
-        # 'level' is not passed, Pydantic will substitute 'Junior' automatically!
-    },
-    source="chat_onboarding",
-)
-memory.commit(fact_profile, actor="Agent_Smith")
+fact_profile = UserProfile(email="alex@corp.com", full_name="Alex Dev", role="Backend")
+memory.commit_model(model=fact_profile, source="chat_onboarding", actor="Agent_Smith")
 
 # Let's check what was recorded
 saved_profile = memory.query(typename="user_profile")[0]
@@ -66,12 +57,8 @@ print(f"✅ Saved Profile: {saved_profile['payload']}")
 print("\n--- Step 2: Updating Profile (Singleton Logic) ---")
 # The agent realized that Alex was actually a Senior.
 # He simply commits a new fact. The system will automatically find the old one by email and update it.
-fact_update = Fact(
-    type="user_profile",
-    payload={"email": "alex@corp.com", "full_name": "Alex Dev", "role": "Backend Lead", "level": "Senior"},
-    source="linkedin_parser",
-)
-memory.commit(fact_update, actor="Agent_Smith", reason="found linkedin profile")
+fact_update = UserProfile(email="alex@corp.com", full_name="Alex Dev", role="Backend Lead", level="Senior")
+memory.commit_model(fact_update, source="linkedin_parser", actor="Agent_Smith", reason="found linkedin profile")
 
 # We're checking. There should be one fact left, but it should be updated.
 profiles = memory.query(typename="user_profile")
@@ -81,15 +68,11 @@ print(f"✅ Updated Level: {profiles[0]['payload']['level']}")
 
 # Scenario 3: Agent hallucinates (writes down delusions)
 print("\n--- Step 3: Agent Hallucination ---")
-bad_fact = Fact(
-    type="meeting_note",
-    payload={
-        "topic": "Salary Negotiation",
-        "summary": "Alex agreed to work for free.",  # Hallucination!
-    },
-    source="voice_transcription_error",
+bad_fact = MeetingNote(
+    topic="Salary Negotiation",
+    summary="Alex agreed to work for free.",  # Hallucination!
 )
-memory.commit(bad_fact, actor="Agent_Smith")
+memory.commit_model(bad_fact, actor="Agent_Smith")
 print("⚠️  Bad fact committed.")
 
 

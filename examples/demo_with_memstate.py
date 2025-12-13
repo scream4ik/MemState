@@ -2,7 +2,7 @@ import time
 
 from pydantic import BaseModel
 
-from memstate import Constraint, Fact, HookError, MemoryStore, Operation
+from memstate import Constraint, HookError, MemoryStore, Operation
 from memstate.backends.sqlite import SQLiteStorage
 
 
@@ -35,13 +35,15 @@ mem.add_hook(FailingVectorHook())
 mem.register_schema("food", Food, Constraint(singleton_key="user_id"))
 
 # Seed initial state
-mem.commit(Fact(type="food", payload={"user_id": "bob", "diet": "likes meat"}), session_id="session_id")
+meet_food = Food(user_id="bob", diet="likes meat")
+mem.commit_model(meet_food, session_id="session_id")
 
 print("Initial state:", mem.query())
 
 print("\nStarting transaction to update diet → 'vegetarian'...")
 try:
-    mem.commit(Fact(type="food", payload={"user_id": "bob", "diet": "vegetarian"}), session_id="session_id")
+    vegetarian_food = Food(user_id="bob", diet="vegetarian")
+    mem.commit_model(vegetarian_food, session_id="session_id")
 except HookError as e:
     print("ERROR:", e)
     print("Rollback triggered...")

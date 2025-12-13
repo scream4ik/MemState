@@ -4,7 +4,18 @@ from typing import Dict, List
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from pydantic import BaseModel
+
 from memstate import Fact, InMemoryStorage, MemoryStore
+
+
+class KnowledgeBase(BaseModel):
+    content: str
+
+
+class UserPref(BaseModel):
+    theme: str
+
 
 # --- Simulated Vector Store ---
 # In real life, this would use OpenAI Embeddings and Qdrant/Chroma
@@ -80,6 +91,8 @@ def main():
 
     storage = InMemoryStorage()  # Our "Postgres"
     memory = MemoryStore(storage)  # Our "Brain"
+    memory.register_schema("knowledge_base", KnowledgeBase)
+    memory.register_schema("user_pref", UserPref)
 
     # Add hook
     memory.add_hook(hook)
@@ -87,13 +100,13 @@ def main():
     print("\n--- Phase 1: Ingestion ---")
     # We simply commit the facts to MemState. The hook will automatically transfer them to Vectors.
 
-    doc1 = Fact(type="knowledge_base", payload={"content": "The moon is made of rock and dust."})
-    doc2 = Fact(type="knowledge_base", payload={"content": "Mars is known as the Red Planet due to iron oxide."})
-    doc3 = Fact(type="user_pref", payload={"theme": "dark"})  # This should NOT be in vectors (filter by type)
+    doc1 = KnowledgeBase(content="The moon is made of rock and dust.")
+    doc2 = KnowledgeBase(content="Mars is known as the Red Planet due to iron oxide.")
+    doc3 = UserPref(theme="dark")  # This should NOT be in vectors (filter by type)
 
-    memory.commit(doc1)
-    memory.commit(doc2)
-    memory.commit(doc3)
+    memory.commit_model(model=doc1)
+    doc2_id = memory.commit_model(model=doc2)
+    memory.commit_model(model=doc3)
 
     print("\n--- Phase 2: RAG Search (Emulation) ---")
     # User asks: "Tell me about the red planet"
@@ -118,7 +131,7 @@ def main():
     # We update ONLY MemState.
 
     print("🛠 Updating Mars fact in SQL...")
-    memory.update(doc2.id, {"payload": {"content": "Mars is the Red Planet and has two moons: Phobos and Deimos."}})
+    memory.update(doc2_id, {"payload": {"content": "Mars is the Red Planet and has two moons: Phobos and Deimos."}})
 
     # Check if the vector index has been updated AUTOMATICALLY?
     print("🔎 Searching again for 'Phobos'...")
@@ -132,7 +145,7 @@ def main():
     print("\n--- Phase 4: Forgetting (Deletion) ---")
     # Deleting a fact from the database
     print("🗑 Deleting Mars fact...")
-    memory.delete(doc2.id)
+    memory.delete(doc2_id)
 
     # Checking the search
     found_ids = vector_db.search("Mars")

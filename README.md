@@ -29,9 +29,15 @@ pip install memstate[chromadb]
 ```
 
 ```python
-from memstate import MemoryStore, Fact, SQLiteStorage, HookError
+from pydantic import BaseModel
+from memstate import MemoryStore, SQLiteStorage, HookError
 from memstate.integrations.chroma import ChromaSyncHook
 import chromadb
+
+# Define your Data Schema
+class UserPref(BaseModel):
+    content: str
+    role: str
 
 # Storage
 sqlite = SQLiteStorage("agent_memory.db")
@@ -40,20 +46,12 @@ chroma = chromadb.Client()
 # Hook: sync vectors atomically with SQL
 mem = MemoryStore(sqlite)
 mem.add_hook(ChromaSyncHook(chroma, "agent_memory", text_field="content", metadata_fields=["role"]))
+mem.register_schema("preference", UserPref)  # Register type for validation
 
-# Multi-step agent workflow
-# Each commit is atomic: if vector DB fails, SQL write is automatically rolled back
-mem.commit(Fact(
-    type="profile_update",
-    payload={"content": "User prefers vegetarian", "role": "preference"}
-))
-
-# Attempt a task that may fail
+# Atomic Commit (Type-Safe)
+# Validates Pydantic model -> Writes SQL -> Upserts Vector
 try:
-    mem.commit(Fact(
-        type="shopping_list",
-        payload={"content": "Generate shopping list based on plan", "role": "task"}
-    ))
+    mem.commit_model(model=UserPref(content="User prefers vegetarian", role="preference"))
 except HookError as e:
     print("Commit failed, operation rolled back automatically:", e)
 
@@ -135,7 +133,7 @@ SQL write + Vector upsert
 * **Rollback**: undo N steps across SQL and vectors
 * **Type safety**: Pydantic validation prevents malformed JSON
 * **Append-only Fact Log**: full versioned history
-* **Crash-safe atomicity**: if a vector DB write fails, the entire memory operation (SQL + vector) is **rolled back**.  
+* **Crash-safe atomicity**: if a vector DB write fails, the entire memory operation (SQL + vector) is **rolled back**.
   No partial writes, no ghost embeddings, no inconsistent checkpoints.
 
 ---
