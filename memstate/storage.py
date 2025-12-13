@@ -1,5 +1,6 @@
 import copy
 import threading
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -133,6 +134,8 @@ class MemoryStore:
     def commit_model(
         self,
         model: BaseModel,
+        fact_id: str | None = None,
+        source: str | None = None,
         session_id: str | None = None,
         ephemeral: bool = False,
         actor: str | None = None,
@@ -150,7 +153,7 @@ class MemoryStore:
                 f"Please call memory.register_schema('your_type_name', {model.__class__.__name__}) first."
             )
 
-        fact = Fact(type=schema_type, payload=model.model_dump())
+        fact = Fact(id=fact_id or str(uuid.uuid4()), type=schema_type, payload=model.model_dump(), source=source)
 
         return self.commit(fact, session_id=session_id, ephemeral=ephemeral, actor=actor, reason=reason)
 

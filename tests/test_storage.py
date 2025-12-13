@@ -146,3 +146,40 @@ def test_commit_model_raises_on_unregistered(memory):
 
     with pytest.raises(MemoryStoreError, match="is not registered"):
         memory.commit_model(unknown)
+
+
+def test_commit_model_create_vs_update(memory):
+    memory.register_schema("user", User)
+
+    user = User(name="Survivor", age=50)
+    fid = memory.commit_model(user)
+
+    assert fid is not None
+    data_v1 = memory.storage.load(fid)
+    assert data_v1["payload"]["name"] == "Survivor"
+    assert data_v1["payload"]["age"] == 50
+
+    user_v2 = User(name="Survivor", age=55)
+
+    fid_updated = memory.commit_model(user_v2, fact_id=fid)
+
+    assert fid_updated == fid
+
+    data_v2 = memory.storage.load(fid)
+    assert data_v2["payload"]["name"] == "Survivor"
+    assert data_v2["payload"]["age"] == 55
+
+    all_facts = memory.storage.query(type_filter="user")
+    assert len(all_facts) == 1
+
+
+def test_commit_model_without_id_creates_duplicate(memory):
+    memory.register_schema("user", User)
+    user = User(name="Survivor", age=50)
+
+    id1 = memory.commit_model(user)
+    id2 = memory.commit_model(user)
+
+    assert id1 != id2
+    all_facts = memory.storage.query(type_filter="user")
+    assert len(all_facts) == 2
