@@ -79,6 +79,9 @@ class InMemoryStorage(StorageBackend):
             else:
                 self._tx_log = self._tx_log[:-count]
 
+    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        return [f for f in self._store.values() if f.get("session_id") == session_id]
+
     def close(self) -> None:
         pass
 
@@ -160,6 +163,9 @@ class AsyncInMemoryStorage(AsyncStorageBackend):
                 self._tx_log.clear()
             else:
                 self._tx_log = self._tx_log[:-count]
+
+    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        return [f for f in self._store.values() if f.get("session_id") == session_id]
 
     async def close(self) -> None:
         pass

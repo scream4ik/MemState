@@ -149,6 +149,25 @@ class RedisStorage(StorageBackend):
             return
         self.r.ltrim(f"{self.prefix}tx_log", count, -1)
 
+    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        key = f"{self.prefix}session:{session_id}"
+        ids = self.r.smembers(key)
+
+        if not ids:
+            return []
+
+        pipe = self.r.pipeline()
+        for i in ids:
+            pipe.get(self._key(i))
+        raw_docs = pipe.execute()
+
+        results = []
+        for raw_doc in raw_docs:
+            doc_str = self._to_str(raw_doc)
+            if doc_str:
+                results.append(json.loads(doc_str))
+        return results
+
     def close(self) -> None:
         if self._owns_client:
             self.r.close()
@@ -269,6 +288,24 @@ class AsyncRedisStorage(AsyncStorageBackend):
         if count <= 0:
             return
         await self.r.ltrim(f"{self.prefix}tx_log", count, -1)
+
+    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        key = f"{self.prefix}session:{session_id}"
+        ids = await self.r.smembers(key)
+
+        if not ids:
+            return []
+
+        async with self.r.pipeline() as pipe:
+            for i in ids:
+                pipe.get(self._key(i))
+            raw_docs = await pipe.execute()
+
+        results = []
+        for raw_doc in raw_docs:
+            if raw_doc:
+                results.append(json.loads(raw_doc))
+        return results
 
     async def close(self):
         if self._owns_client:

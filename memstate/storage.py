@@ -242,13 +242,7 @@ class MemoryStore:
         reason: str | None = None,
     ) -> list[str]:
         with self._lock:
-            # Find all session facts (via query or backend index)
-            # RedisStorage and InMemory can search by session_id if we add it to the query.
-            # For MVP, we use a query with a filter (slow on large volumes, fast with indexes)
-
-            # In RedisStorage, it is better to create a separate get_session_facts method, but we use query
-            # We assume that storage stores session_id in json data
-            candidates = self.storage.query(json_filters={"session_id": session_id})
+            candidates = self.storage.get_session_facts(session_id)
 
             promoted = []
             for fact_dict in candidates:
@@ -492,7 +486,7 @@ class AsyncMemoryStore:
         reason: str | None = None,
     ) -> list[str]:
         async with self._lock:
-            candidates = await self.storage.query(json_filters={"session_id": session_id})
+            candidates = await self.storage.get_session_facts(session_id)
 
             promoted = []
             for fact_dict in candidates:

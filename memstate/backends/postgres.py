@@ -140,6 +140,12 @@ class PostgresStorage(StorageBackend):
         with self._engine.begin() as conn:
             conn.execute(stmt)
 
+    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        stmt = select(self._facts_table.c.doc).where(self._facts_table.c.doc["session_id"].astext == session_id)
+        with self._engine.connect() as conn:
+            rows = conn.execute(stmt).all()
+            return [r[0] for r in rows]
+
     def close(self) -> None:
         self._engine.dispose()
 
@@ -247,6 +253,12 @@ class AsyncPostgresStorage(AsyncStorageBackend):
 
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
+
+    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        stmt = select(self._facts_table.c.doc).where(self._facts_table.c.doc["session_id"].astext == session_id)
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return [r[0] for r in result.all()]
 
     async def close(self) -> None:
         await self._engine.dispose()

@@ -155,6 +155,12 @@ class SQLiteStorage(StorageBackend):
             )
             self._conn.commit()
 
+    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            c = self._conn.cursor()
+            c.execute("SELECT data FROM facts WHERE json_extract(data, '$.session_id') = ?", (session_id,))
+            return [json.loads(row["data"]) for row in c.fetchall()]
+
     def close(self):
         if self._owns_connection:
             self._conn.close()
@@ -314,6 +320,14 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
                 (count,),
             )
             await self._db.commit()
+
+    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        async with self._lock:
+            async with self._db.execute(
+                "SELECT data FROM facts WHERE json_extract(data, '$.session_id') = ?", (session_id,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [json.loads(row["data"]) for row in rows]
 
     async def close(self) -> None:
         if self._db:

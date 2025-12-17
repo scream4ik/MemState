@@ -45,6 +45,11 @@ class StorageBackend(ABC):
         """Removes the last N entries from the transaction log (LIFO)."""
         pass
 
+    @abstractmethod
+    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        """Retrieve all facts belonging to a specific session."""
+        pass
+
     def close(self) -> None:
         """Cleanup resources (optional)."""
         pass
@@ -93,6 +98,11 @@ class AsyncStorageBackend(ABC):
     @abstractmethod
     async def remove_last_tx(self, count: int) -> None:
         """Removes the last N entries from the transaction log (LIFO)."""
+        pass
+
+    @abstractmethod
+    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        """Retrieve all facts belonging to a specific session."""
         pass
 
     async def close(self) -> None:

@@ -165,3 +165,26 @@ async def test_remove_last_tx(storage):
 
     logs = await storage.get_tx_log(limit=10)
     assert len(logs) == 0
+
+
+async def test_get_session_facts(storage):
+    ts = datetime.now(timezone.utc).isoformat()
+
+    await storage.save({"id": "a1", "type": "msg", "session_id": "session_A", "payload": {"val": 1}, "ts": ts})
+    await storage.save({"id": "a2", "type": "msg", "session_id": "session_A", "payload": {"val": 2}, "ts": ts})
+
+    await storage.save({"id": "b1", "type": "msg", "session_id": "session_B", "payload": {"val": 3}, "ts": ts})
+
+    await storage.save({"id": "g1", "type": "config", "payload": {"val": 0}, "ts": ts})
+
+    facts_a = await storage.get_session_facts("session_A")
+    assert len(facts_a) == 2
+    ids_a = sorted([f["id"] for f in facts_a])
+    assert ids_a == ["a1", "a2"]
+
+    facts_b = await storage.get_session_facts("session_B")
+    assert len(facts_b) == 1
+    assert facts_b[0]["id"] == "b1"
+
+    facts_empty = await storage.get_session_facts("ghost_session")
+    assert facts_empty == []
