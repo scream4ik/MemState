@@ -195,13 +195,26 @@ class MemoryStore:
                 raise MemoryStoreError("Fact not found")
 
             before = copy.deepcopy(existing)
-            # Deep merge or shallow? Shallow for MVP
-            existing["payload"].update(patch.get("payload", {}))
-            existing["ts"] = datetime.now(timezone.utc).isoformat()
+            draft = copy.deepcopy(existing)
 
-            self.storage.save(existing)
-            self._log_tx(Operation.UPDATE, fact_id, before, existing, actor, reason)
-            self._notify_hooks(Operation.UPDATE, fact_id, Fact(**existing))
+            current_payload = draft.get("payload", {})
+            patch_payload = patch.get("payload", {})
+            current_payload.update(patch_payload)
+
+            fact_type = draft["type"]
+            validated_payload = self._schema_registry.validate(fact_type, current_payload)
+
+            draft["payload"] = validated_payload
+            draft["ts"] = datetime.now(timezone.utc).isoformat()
+
+            try:
+                self.storage.save(draft)
+                self._log_tx(Operation.UPDATE, fact_id, before, draft, actor, reason)
+                self._notify_hooks(Operation.UPDATE, fact_id, Fact(**draft))
+            except HookError as e:
+                self.storage.save(before)
+                raise e
+
             return fact_id
 
     def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
@@ -432,13 +445,26 @@ class AsyncMemoryStore:
                 raise MemoryStoreError("Fact not found")
 
             before = copy.deepcopy(existing)
-            # Deep merge or shallow? Shallow for MVP
-            existing["payload"].update(patch.get("payload", {}))
-            existing["ts"] = datetime.now(timezone.utc).isoformat()
+            draft = copy.deepcopy(existing)
 
-            await self.storage.save(existing)
-            await self._log_tx(Operation.UPDATE, fact_id, before, existing, actor, reason)
-            await self._notify_hooks(Operation.UPDATE, fact_id, Fact(**existing))
+            current_payload = draft.get("payload", {})
+            patch_payload = patch.get("payload", {})
+            current_payload.update(patch_payload)
+
+            fact_type = draft["type"]
+            validated_payload = self._schema_registry.validate(fact_type, current_payload)
+
+            draft["payload"] = validated_payload
+            draft["ts"] = datetime.now(timezone.utc).isoformat()
+
+            try:
+                await self.storage.save(draft)
+                await self._log_tx(Operation.UPDATE, fact_id, before, draft, actor, reason)
+                await self._notify_hooks(Operation.UPDATE, fact_id, Fact(**draft))
+            except HookError as e:
+                await self.storage.save(before)
+                raise e
+
             return fact_id
 
     async def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:

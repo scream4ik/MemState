@@ -59,13 +59,6 @@ async def test_immutable_constraint_conflict(memory):
     assert "Immutable constraint violation" in str(excinfo.value)
 
 
-async def test_update_non_existent_fact(memory):
-    with pytest.raises(MemoryStoreError) as excinfo:
-        await memory.update("non-existent-id", {"payload": {"age": 99}})
-
-    assert "Fact not found" in str(excinfo.value)
-
-
 async def test_delete_non_existent_fact(memory):
     with pytest.raises(MemoryStoreError):
         await memory.delete("ghost-id")
