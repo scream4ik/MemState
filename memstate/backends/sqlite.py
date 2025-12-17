@@ -142,6 +142,19 @@ class SQLiteStorage(StorageBackend):
             self._conn.commit()
             return ids
 
+    def remove_last_tx(self, count: int) -> None:
+        with self._lock:
+            c = self._conn.cursor()
+            c.execute(
+                """
+                DELETE
+                FROM tx_log
+                WHERE tx_id IN (SELECT tx_id FROM tx_log ORDER BY tx_id DESC LIMIT ?)
+                """,
+                (count,),
+            )
+            self._conn.commit()
+
     def close(self):
         if self._owns_connection:
             self._conn.close()
@@ -289,6 +302,18 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
             ids = [row["id"] for row in rows]
             await self._db.commit()
             return ids
+
+    async def remove_last_tx(self, count: int) -> None:
+        async with self._lock:
+            await self._db.execute(
+                """
+                DELETE
+                FROM tx_log
+                WHERE tx_id IN (SELECT tx_id FROM tx_log ORDER BY tx_id DESC LIMIT ?)
+                """,
+                (count,),
+            )
+            await self._db.commit()
 
     async def close(self) -> None:
         if self._db:

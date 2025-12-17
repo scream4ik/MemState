@@ -144,6 +144,11 @@ class RedisStorage(StorageBackend):
         pipe.execute()
         return ids
 
+    def remove_last_tx(self, count: int) -> None:
+        if count <= 0:
+            return
+        self.r.ltrim(f"{self.prefix}tx_log", count, -1)
+
     def close(self) -> None:
         if self._owns_client:
             self.r.close()
@@ -259,6 +264,11 @@ class AsyncRedisStorage(AsyncStorageBackend):
             await pipe.execute()
 
         return ids
+
+    async def remove_last_tx(self, count: int) -> None:
+        if count <= 0:
+            return
+        await self.r.ltrim(f"{self.prefix}tx_log", count, -1)
 
     async def close(self):
         if self._owns_client:

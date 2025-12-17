@@ -290,8 +290,7 @@ class MemoryStore:
                         self.storage.save(entry["fact_before"])
                         self._notify_hooks(Operation.COMMIT, fid, Fact(**entry["fact_before"]))
 
-            # Ideally, we should log the rollback fact ("Undo operation"),
-            # so as not to break the chain of history, but for MVP we simply roll back the data.
+            self.storage.remove_last_tx(len(logs))
 
 
 class AsyncMemoryStore:
@@ -524,3 +523,5 @@ class AsyncMemoryStore:
                     if entry["fact_before"]:
                         await self.storage.save(entry["fact_before"])
                         await self._notify_hooks(Operation.COMMIT, fid, Fact(**entry["fact_before"]))
+
+            await self.storage.remove_last_tx(len(logs))

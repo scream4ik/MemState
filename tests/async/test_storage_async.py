@@ -85,6 +85,10 @@ async def test_rollback(memory):
     fact = await memory.get(fid)
     assert fact["payload"]["age"] == 10
 
+    logs = await memory.storage.get_tx_log(limit=10)
+    assert len(logs) == 1
+    assert logs[0]["op"] == "COMMIT"
+
 
 async def test_hooks_called(memory):
     mock_hook = AsyncMock()

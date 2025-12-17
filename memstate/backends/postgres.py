@@ -129,6 +129,17 @@ class PostgresStorage(StorageBackend):
             result = conn.execute(del_stmt)
             return [r[0] for r in result.all()]
 
+    def remove_last_tx(self, count: int) -> None:
+        if count <= 0:
+            return
+
+        subquery = select(self._log_table.c.seq).order_by(desc(self._log_table.c.seq)).limit(count).scalar_subquery()
+
+        stmt = delete(self._log_table).where(self._log_table.c.seq.in_(subquery))
+
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
+
     def close(self) -> None:
         self._engine.dispose()
 
@@ -225,6 +236,17 @@ class AsyncPostgresStorage(AsyncStorageBackend):
         async with self._engine.begin() as conn:
             result = await conn.execute(del_stmt)
             return [r[0] for r in result.all()]
+
+    async def remove_last_tx(self, count: int) -> None:
+        if count <= 0:
+            return
+
+        subquery = select(self._log_table.c.seq).order_by(desc(self._log_table.c.seq)).limit(count).scalar_subquery()
+
+        stmt = delete(self._log_table).where(self._log_table.c.seq.in_(subquery))
+
+        async with self._engine.begin() as conn:
+            await conn.execute(stmt)
 
     async def close(self) -> None:
         await self._engine.dispose()

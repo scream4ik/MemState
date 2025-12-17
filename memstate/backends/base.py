@@ -40,6 +40,11 @@ class StorageBackend(ABC):
         """Bulk delete ephemeral facts (Working Memory cleanup). Returns deleted IDs."""
         pass
 
+    @abstractmethod
+    def remove_last_tx(self, count: int) -> None:
+        """Removes the last N entries from the transaction log (LIFO)."""
+        pass
+
     def close(self) -> None:
         """Cleanup resources (optional)."""
         pass
@@ -83,6 +88,11 @@ class AsyncStorageBackend(ABC):
     @abstractmethod
     async def delete_session(self, session_id: str) -> list[str]:
         """Bulk delete ephemeral facts asynchronously. Returns deleted IDs."""
+        pass
+
+    @abstractmethod
+    async def remove_last_tx(self, count: int) -> None:
+        """Removes the last N entries from the transaction log (LIFO)."""
         pass
 
     async def close(self) -> None:

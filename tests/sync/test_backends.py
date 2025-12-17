@@ -136,3 +136,24 @@ def test_session_cleanup(storage):
     assert storage.load("s2") is None
     assert storage.load("ltm1") is not None
     assert storage.load("s3") is not None
+
+
+def test_remove_last_tx(storage):
+    for i in range(1, 4):
+        storage.append_tx({"uuid": f"t{i}", "op": "COMMIT", "ts": datetime.now().isoformat()})
+
+    logs = storage.get_tx_log(limit=10)
+    assert len(logs) == 3
+    assert logs[0]["uuid"] == "t3"
+
+    storage.remove_last_tx(1)
+
+    logs = storage.get_tx_log(limit=10)
+    assert len(logs) == 2
+    assert logs[0]["uuid"] == "t2"
+    assert logs[1]["uuid"] == "t1"
+
+    storage.remove_last_tx(5)
+
+    logs = storage.get_tx_log(limit=10)
+    assert len(logs) == 0

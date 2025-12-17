@@ -70,6 +70,18 @@ class InMemoryStorage(StorageBackend):
                 del self._store[fid]
             return to_delete
 
+    def remove_last_tx(self, count: int) -> None:
+        with self._lock:
+            if count <= 0:
+                return
+            if count >= len(self._tx_log):
+                self._tx_log.clear()
+            else:
+                self._tx_log = self._tx_log[:-count]
+
+    def close(self) -> None:
+        pass
+
 
 class AsyncInMemoryStorage(AsyncStorageBackend):
     def __init__(self) -> None:
@@ -138,6 +150,16 @@ class AsyncInMemoryStorage(AsyncStorageBackend):
             for fid in to_delete:
                 del self._store[fid]
             return to_delete
+
+    async def remove_last_tx(self, count: int) -> None:
+        async with self._lock:
+            if count <= 0:
+                return
+
+            if count >= len(self._tx_log):
+                self._tx_log.clear()
+            else:
+                self._tx_log = self._tx_log[:-count]
 
     async def close(self) -> None:
         pass

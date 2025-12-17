@@ -144,3 +144,24 @@ async def test_session_cleanup(storage):
     assert await storage.load("s2") is None
     assert await storage.load("ltm1") is not None
     assert await storage.load("s3") is not None
+
+
+async def test_remove_last_tx(storage):
+    for i in range(1, 4):
+        await storage.append_tx({"uuid": f"t{i}", "op": "COMMIT", "ts": datetime.now().isoformat()})
+
+    logs = await storage.get_tx_log(limit=10)
+    assert len(logs) == 3
+    assert logs[0]["uuid"] == "t3"
+
+    await storage.remove_last_tx(1)
+
+    logs = await storage.get_tx_log(limit=10)
+    assert len(logs) == 2
+    assert logs[0]["uuid"] == "t2"
+    assert logs[1]["uuid"] == "t1"
+
+    await storage.remove_last_tx(5)
+
+    logs = await storage.get_tx_log(limit=10)
+    assert len(logs) == 0
