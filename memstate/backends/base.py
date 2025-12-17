@@ -3,6 +3,8 @@ from typing import Any
 
 
 class StorageBackend(ABC):
+    """Synchronous storage interface (blocking I/O)."""
+
     @abstractmethod
     def load(self, id: str) -> dict[str, Any] | None:
         """Load a single fact by ID."""
@@ -36,4 +38,53 @@ class StorageBackend(ABC):
     @abstractmethod
     def delete_session(self, session_id: str) -> list[str]:
         """Bulk delete ephemeral facts (Working Memory cleanup). Returns deleted IDs."""
+        pass
+
+    def close(self) -> None:
+        """Cleanup resources (optional)."""
+        pass
+
+
+class AsyncStorageBackend(ABC):
+    """Asynchronous storage interface (non-blocking I/O)."""
+
+    @abstractmethod
+    async def load(self, id: str) -> dict[str, Any] | None:
+        """Load a single fact by ID asynchronously."""
+        pass
+
+    @abstractmethod
+    async def save(self, fact_data: dict[str, Any]) -> None:
+        """Upsert a fact asynchronously."""
+        pass
+
+    @abstractmethod
+    async def delete(self, id: str) -> None:
+        """Delete a fact asynchronously."""
+        pass
+
+    @abstractmethod
+    async def query(
+        self, type_filter: str | None = None, json_filters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Find facts matching criteria asynchronously."""
+        pass
+
+    @abstractmethod
+    async def append_tx(self, tx_data: dict[str, Any]) -> None:
+        """Log a transaction asynchronously."""
+        pass
+
+    @abstractmethod
+    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Retrieve transaction history asynchronously."""
+        pass
+
+    @abstractmethod
+    async def delete_session(self, session_id: str) -> list[str]:
+        """Bulk delete ephemeral facts asynchronously. Returns deleted IDs."""
+        pass
+
+    async def close(self) -> None:
+        """Cleanup resources asynchronously."""
         pass

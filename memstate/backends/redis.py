@@ -1,10 +1,11 @@
 import json
 from typing import Any, Union
 
-from memstate.backends.base import StorageBackend
+from memstate.backends.base import AsyncStorageBackend, StorageBackend
 
 try:
     import redis
+    import redis.asyncio as aredis
 except ImportError:
     raise ImportError("redis package is required. pip install redis")
 
@@ -143,6 +144,122 @@ class RedisStorage(StorageBackend):
         pipe.execute()
         return ids
 
-    def close(self):
+    def close(self) -> None:
         if self._owns_client:
             self.r.close()
+
+
+class AsyncRedisStorage(AsyncStorageBackend):
+    def __init__(self, client_or_url: Union[str, "aredis.Redis"] = "redis://localhost:6379/0") -> None:
+        self.prefix = "mem:"
+
+        if isinstance(client_or_url, str):
+            self.r = aredis.from_url(client_or_url, decode_responses=True)  # type: ignore[no-untyped-call]
+            self._owns_client = True
+        else:
+            self.r = client_or_url
+            self._owns_client = False
+
+    def _key(self, id: str) -> str:
+        return f"{self.prefix}fact:{id}"
+
+    def _get_value_by_path(self, data: dict[str, Any], path: str) -> Any:
+        keys = path.split(".")
+        val: Any = data
+        try:
+            for k in keys:
+                if isinstance(val, dict):
+                    val = val.get(k)
+                else:
+                    return None
+            return val
+        except (AttributeError, TypeError):
+            return None
+
+    async def load(self, id: str) -> dict[str, Any] | None:
+        raw_data = await self.r.get(self._key(id))
+        return json.loads(raw_data) if raw_data else None
+
+    async def save(self, fact_data: dict[str, Any]) -> None:
+        async with self.r.pipeline() as pipe:
+            pipe.set(self._key(fact_data["id"]), json.dumps(fact_data))
+            pipe.sadd(f"{self.prefix}type:{fact_data['type']}", fact_data["id"])
+            if fact_data.get("session_id"):
+                pipe.sadd(f"{self.prefix}session:{fact_data['session_id']}", fact_data["id"])
+            await pipe.execute()
+
+    async def delete(self, id: str) -> None:
+        data = await self.load(id)
+        if data:
+            async with self.r.pipeline() as pipe:
+                pipe.delete(self._key(id))
+                pipe.srem(f"{self.prefix}type:{data['type']}", id)
+                if data.get("session_id"):
+                    pipe.srem(f"{self.prefix}session:{data['session_id']}", id)
+                await pipe.execute()
+
+    async def query(
+        self, type_filter: str | None = None, json_filters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        if type_filter:
+            ids = await self.r.smembers(f"{self.prefix}type:{type_filter}")
+        else:
+            keys = await self.r.keys(f"{self.prefix}fact:*")
+            ids = [k.split(":")[-1] for k in keys]
+
+        if not ids:
+            return []
+
+        async with self.r.pipeline() as pipe:
+            for i in list(ids):
+                pipe.get(self._key(i))
+            raw_docs = await pipe.execute()
+
+        results = []
+        for doc_str in raw_docs:
+            if not doc_str:
+                continue
+            fact = json.loads(doc_str)
+
+            if json_filters:
+                match = True
+                for k, v in json_filters.items():
+                    actual_val = self._get_value_by_path(fact, k)
+                    if actual_val != v:
+                        match = False
+                        break
+                if not match:
+                    continue
+            results.append(fact)
+
+        return results
+
+    async def append_tx(self, tx_data: dict[str, Any]) -> None:
+        await self.r.lpush(f"{self.prefix}tx_log", json.dumps(tx_data))
+
+    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        raw_list = await self.r.lrange(f"{self.prefix}tx_log", offset, offset + limit - 1)
+        results = []
+        for item in raw_list:
+            if item:
+                results.append(json.loads(item))
+        return results
+
+    async def delete_session(self, session_id: str) -> list[str]:
+        key = f"{self.prefix}session:{session_id}"
+        ids = list(await self.r.smembers(key))
+
+        if not ids:
+            return []
+
+        async with self.r.pipeline() as pipe:
+            for i in ids:
+                pipe.delete(self._key(i))
+            pipe.delete(key)
+            await pipe.execute()
+
+        return ids
+
+    async def close(self):
+        if self._owns_client:
+            await self.r.aclose()

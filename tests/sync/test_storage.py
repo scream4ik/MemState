@@ -43,8 +43,8 @@ def test_singleton_constraint(memory):
     id1 = memory.commit(Fact(type="user", payload={"name": "Alice", "age": 20}))
     id2 = memory.commit(Fact(type="user", payload={"name": "Alice", "age": 25}))
 
-    assert id1 == id2  # ID должен сохраниться
-    assert memory.get(id1)["payload"]["age"] == 25  # Данные обновились
+    assert id1 == id2
+    assert memory.get(id1)["payload"]["age"] == 25
 
 
 def test_immutable_constraint_conflict(memory):

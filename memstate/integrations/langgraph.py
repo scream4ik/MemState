@@ -1,4 +1,4 @@
-from typing import Any, Iterator, Sequence
+from typing import Any, AsyncIterator, Iterator, Sequence
 
 try:
     from langchain_core.runnables import RunnableConfig
@@ -14,7 +14,7 @@ except ImportError:
     raise ImportError("pip install langgraph")
 
 from memstate.schemas import Fact
-from memstate.storage import MemoryStore
+from memstate.storage import AsyncMemoryStore, MemoryStore
 
 
 class MemStateCheckpointer(BaseCheckpointSaver[str]):
@@ -148,3 +148,146 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
 
     def delete_thread(self, thread_id: str) -> None:
         self.memory.discard_session(thread_id)
+
+
+class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
+    """
+    Asynchronous Checkpointer for LangGraph.
+    Requires an AsyncMemoryStore.
+    """
+
+    def __init__(self, memory: AsyncMemoryStore, serde: SerializerProtocol | None = None) -> None:
+        super().__init__(serde=serde or JsonPlusSerializer())
+        self.memory = memory
+        self.fact_type = "langgraph_checkpoint"
+        self.write_type = "langgraph_write"
+
+    async def aput(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: dict[str, Any],
+    ) -> RunnableConfig:
+        thread_id = config["configurable"]["thread_id"]
+
+        payload = {
+            "checkpoint": checkpoint,
+            "metadata": metadata,
+            "new_versions": new_versions,
+            "thread_ts": checkpoint["id"],
+        }
+
+        # AWAIT COMMIT
+        await self.memory.commit(
+            Fact(type=self.fact_type, payload=payload, source="langgraph_checkpoint"), session_id=thread_id
+        )
+
+        return {
+            "configurable": {
+                "thread_id": thread_id,
+                "thread_ts": checkpoint["id"],
+            }
+        }
+
+    async def aput_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        thread_id = config["configurable"]["thread_id"]
+
+        for idx, (channel, value) in enumerate(writes):
+            payload = {
+                "task_id": task_id,
+                "task_path": task_path,
+                "channel": channel,
+                "value": value,
+                "idx": idx,
+                "thread_id": thread_id,
+            }
+
+            # AWAIT COMMIT
+            await self.memory.commit(
+                Fact(type=self.write_type, payload=payload, source="langgraph_writes"), session_id=thread_id
+            )
+
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        thread_id = config["configurable"]["thread_id"]
+        thread_ts = config["configurable"].get("thread_ts")
+
+        facts = await self.memory.storage.query(type_filter=self.fact_type, json_filters={"session_id": thread_id})
+
+        if not facts:
+            return None
+
+        facts.sort(key=lambda x: x["ts"], reverse=True)
+
+        fact = None
+        if thread_ts:
+            for f in facts:
+                if f["payload"].get("thread_ts") == thread_ts:
+                    fact = f
+                    break
+        else:
+            fact = facts[0]
+
+        if not fact:
+            return None
+
+        payload = fact["payload"]
+        checkpoint = payload["checkpoint"]
+        pending_sends = checkpoint.get("pending_sends") or []
+
+        return CheckpointTuple(
+            config=config,
+            checkpoint=checkpoint,
+            metadata=payload["metadata"],
+            parent_config=None,
+            pending_writes=pending_sends,
+        )
+
+    async def alist(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+
+        json_filters = {}
+        if config and "configurable" in config:
+            thread_id = config["configurable"].get("thread_id")
+            if thread_id:
+                json_filters["session_id"] = thread_id
+
+        # AWAIT QUERY
+        facts = await self.memory.storage.query(
+            type_filter=self.fact_type, json_filters=json_filters if json_filters else None
+        )
+        facts.sort(key=lambda x: x["ts"], reverse=True)
+
+        if limit:
+            facts = facts[:limit]
+
+        # ASYNC YIELD
+        for fact in facts:
+            payload = fact["payload"]
+            yield CheckpointTuple(
+                {
+                    "configurable": {
+                        "thread_id": payload.get("thread_id") or json_filters.get("session_id"),
+                        "thread_ts": payload["thread_ts"],
+                    }
+                },
+                payload["checkpoint"],
+                payload["metadata"],
+                (payload.get("checkpoint") or {}).get("pending_sends", []),
+            )
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Async cleanup of the thread state."""
+        await self.memory.discard_session(thread_id)

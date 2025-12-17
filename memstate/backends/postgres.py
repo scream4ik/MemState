@@ -17,10 +17,11 @@ try:
     from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     from sqlalchemy.engine import Engine
+    from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 except ImportError:
     raise ImportError("Run `pip install postgres[binary]` to use Postgres backend.")
 
-from memstate.backends.base import StorageBackend
+from memstate.backends.base import AsyncStorageBackend, StorageBackend
 
 
 class PostgresStorage(StorageBackend):
@@ -118,19 +119,112 @@ class PostgresStorage(StorageBackend):
             return [r[0] for r in rows]
 
     def delete_session(self, session_id: str) -> list[str]:
-        # 1. Find the ID to delete
-        # WHERE doc->>'session_id' == session_id
-        find_stmt = select(self._facts_table.c.id).where(self._facts_table.c.doc["session_id"].astext == session_id)
+        del_stmt = (
+            delete(self._facts_table)
+            .where(self._facts_table.c.doc["session_id"].astext == session_id)
+            .returning(self._facts_table.c.id)
+        )
 
-        with self._engine.connect() as conn:
-            ids_to_delete = [r[0] for r in conn.execute(find_stmt).all()]
-
-        if not ids_to_delete:
-            return []
-
-        # 2. Delete
-        del_stmt = delete(self._facts_table).where(self._facts_table.c.id.in_(ids_to_delete))
         with self._engine.begin() as conn:
-            conn.execute(del_stmt)
+            result = conn.execute(del_stmt)
+            return [r[0] for r in result.all()]
 
-        return ids_to_delete
+    def close(self) -> None:
+        self._engine.dispose()
+
+
+class AsyncPostgresStorage(AsyncStorageBackend):
+    """
+    store = AsyncPostgresStorage(...)
+    await store.create_tables()
+    """
+
+    def __init__(self, engine_or_url: str | AsyncEngine, table_prefix: str = "memstate") -> None:
+        if isinstance(engine_or_url, str):
+            self._engine = create_async_engine(engine_or_url, future=True)
+        else:
+            self._engine = engine_or_url
+
+        self._metadata = MetaData()
+        self._table_prefix = table_prefix
+
+        self._facts_table = Table(
+            f"{table_prefix}_facts",
+            self._metadata,
+            Column("id", String, primary_key=True),
+            Column("doc", JSONB, nullable=False),
+        )
+
+        self._log_table = Table(
+            f"{table_prefix}_log",
+            self._metadata,
+            Column("seq", Integer, primary_key=True, autoincrement=True),
+            Column("entry", JSONB, nullable=False),
+        )
+
+    async def create_tables(self) -> None:
+        """Helper to create tables asynchronously (uses run_sync)."""
+        async with self._engine.begin() as conn:
+            await conn.run_sync(self._metadata.create_all)
+
+    async def load(self, id: str) -> dict[str, Any] | None:
+        async with self._engine.connect() as conn:
+            stmt = select(self._facts_table.c.doc).where(self._facts_table.c.id == id)
+            result = await conn.execute(stmt)
+            row = result.first()
+            if row:
+                return row[0]
+            return None
+
+    async def save(self, fact_data: dict[str, Any]) -> None:
+        stmt = pg_insert(self._facts_table).values(id=fact_data["id"], doc=fact_data)
+        upsert_stmt = stmt.on_conflict_do_update(index_elements=["id"], set_={"doc": stmt.excluded.doc})
+        async with self._engine.begin() as conn:
+            await conn.execute(upsert_stmt)
+
+    async def delete(self, id: str) -> None:
+        async with self._engine.begin() as conn:
+            await conn.execute(delete(self._facts_table).where(self._facts_table.c.id == id))
+
+    async def query(
+        self, type_filter: str | None = None, json_filters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        stmt = select(self._facts_table.c.doc)
+
+        if type_filter:
+            stmt = stmt.where(self._facts_table.c.doc["type"].astext == type_filter)
+
+        if json_filters:
+            for key, value in json_filters.items():
+                path_parts = key.split(".")
+                json_col: Any = self._facts_table.c.doc
+                for part in path_parts[:-1]:
+                    json_col = json_col[part]
+                stmt = stmt.where(json_col[path_parts[-1]] == func.to_jsonb(value))
+
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return [r[0] for r in result.all()]
+
+    async def append_tx(self, tx_data: dict[str, Any]) -> None:
+        async with self._engine.begin() as conn:
+            await conn.execute(self._log_table.insert().values(entry=tx_data))
+
+    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        stmt = select(self._log_table.c.entry).order_by(desc(self._log_table.c.seq)).limit(limit).offset(offset)
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return [r[0] for r in result.all()]
+
+    async def delete_session(self, session_id: str) -> list[str]:
+        del_stmt = (
+            delete(self._facts_table)
+            .where(self._facts_table.c.doc["session_id"].astext == session_id)
+            .returning(self._facts_table.c.id)
+        )
+        async with self._engine.begin() as conn:
+            result = await conn.execute(del_stmt)
+            return [r[0] for r in result.all()]
+
+    async def close(self) -> None:
+        await self._engine.dispose()
