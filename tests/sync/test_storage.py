@@ -60,23 +60,23 @@ def test_immutable_constraint_conflict(memory):
 
 def test_delete_non_existent_fact(memory):
     with pytest.raises(MemoryStoreError):
-        memory.delete("ghost-id")
+        memory.delete(session_id="session_1", fact_id="ghost-id")
 
 
 def test_rollback(memory):
     memory.register_schema("user", User)
 
-    fid = memory.commit(Fact(type="user", payload={"name": "Neo", "age": 10}))
+    fid = memory.commit(fact=Fact(type="user", payload={"name": "Neo", "age": 10}), session_id="session_1")
 
     memory.update(fid, {"payload": {"age": 99}})
     assert memory.get(fid)["payload"]["age"] == 99
 
-    memory.rollback(1)
+    memory.rollback(session_id="session_1", steps=1)
 
     fact = memory.get(fid)
     assert fact["payload"]["age"] == 10
 
-    logs = memory.storage.get_tx_log(limit=10)
+    logs = memory.storage.get_tx_log(session_id="session_1", limit=10)
     assert len(logs) == 1
     assert logs[0]["op"] == "COMMIT"
 
@@ -85,14 +85,14 @@ def test_hooks_called(memory):
     mock_hook = Mock()
     memory.add_hook(mock_hook)
 
-    fid = memory.commit(Fact(type="user", payload={"name": "HookTester", "age": 30}))
+    fid = memory.commit(fact=Fact(type="user", payload={"name": "HookTester", "age": 30}), session_id="session_1")
 
     mock_hook.assert_called_with("COMMIT", fid, ANY)
 
     memory.update(fid, {"payload": {"age": 31}})
     mock_hook.assert_called_with("UPDATE", fid, ANY)
 
-    memory.delete(fid)
+    memory.delete(session_id="session_1", fact_id=fid)
     mock_hook.assert_called_with("DELETE", fid, ANY)
 
 

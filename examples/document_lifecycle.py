@@ -87,7 +87,7 @@ def run_demo():
         status="archived",  # Metadata changed
         author="Alice",
     )
-    memory.commit_model(fact_id=doc_id, model=updated_project)
+    memory.commit_model(fact_id=doc_id, model=updated_project, session_id="session_1")
 
     print_state("AFTER UPDATE", doc_id, sqlite, collection)
 
@@ -96,7 +96,7 @@ def run_demo():
     # =========================================================================
     print(f"\n3️⃣  Deleting document...")
 
-    memory.delete(doc_id)
+    memory.delete(session_id="session_1", fact_id=doc_id)
 
     # Manual verification
     print(f"\n--- CHECKING STATE: AFTER DELETE ---")

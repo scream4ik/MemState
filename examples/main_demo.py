@@ -46,7 +46,7 @@ print("🚀 Agent Memory initialized.\n")
 # Scenario 1: Agent learns about the user
 print("--- Step 1: Creating User Profile ---")
 fact_profile = UserProfile(email="alex@corp.com", full_name="Alex Dev", role="Backend")
-memory.commit_model(model=fact_profile, source="chat_onboarding", actor="Agent_Smith")
+memory.commit_model(model=fact_profile, source="chat_onboarding", session_id="session_1", actor="Agent_Smith")
 
 # Let's check what was recorded
 saved_profile = memory.query(typename="user_profile")[0]
@@ -58,10 +58,12 @@ print("\n--- Step 2: Updating Profile (Singleton Logic) ---")
 # The agent realized that Alex was actually a Senior.
 # He simply commits a new fact. The system will automatically find the old one by email and update it.
 fact_update = UserProfile(email="alex@corp.com", full_name="Alex Dev", role="Backend Lead", level="Senior")
-memory.commit_model(fact_update, source="linkedin_parser", actor="Agent_Smith", reason="found linkedin profile")
+memory.commit_model(
+    fact_update, source="linkedin_parser", session_id="session_1", actor="Agent_Smith", reason="found linkedin profile"
+)
 
 # We're checking. There should be one fact left, but it should be updated.
-profiles = memory.query(typename="user_profile")
+profiles = memory.query(typename="user_profile", session_id="session_1")
 print(f"✅ Total Profiles: {len(profiles)}")
 print(f"✅ Updated Level: {profiles[0]['payload']['level']}")
 
@@ -72,7 +74,7 @@ bad_fact = MeetingNote(
     topic="Salary Negotiation",
     summary="Alex agreed to work for free.",  # Hallucination!
 )
-memory.commit_model(bad_fact, actor="Agent_Smith")
+memory.commit_model(bad_fact, actor="Agent_Smith", session_id="session_1")
 print("⚠️  Bad fact committed.")
 
 
@@ -81,19 +83,19 @@ print("⚠️  Bad fact committed.")
 print("\n--- Step 4: Detection & Rollback ---")
 # The developer or Supervisor-Agent notices an error.
 # Let's look at the latest transactions
-logs = storage.get_tx_log(limit=2)
+logs = storage.get_tx_log(session_id="session_1", limit=2)
 print(f"🔍 Last Action: {logs[0]['op']} by {logs[0]['actor']}")
 
 print("↺ Rolling back 1 step...")
-memory.rollback(steps=1)
+memory.rollback(session_id="session_1", steps=1)
 
 # Let's check if the bad fact has disappeared
-notes = memory.query(typename="meeting_note")
+notes = memory.query(typename="meeting_note", session_id="session_1")
 if not notes:
     print("✅ Rollback successful! The bad note is gone.")
 else:
     print("❌ Failed, note still exists.")
 
 # We check that the profile (previous state) is not damaged
-profiles = memory.query(typename="user_profile")
+profiles = memory.query(typename="user_profile", session_id="session_1")
 print(f"✅ Profile still exists and is {profiles[0]['payload']['level']}")

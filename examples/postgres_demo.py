@@ -98,7 +98,7 @@ def main():
         # Step 7: Audit Log (Compliance)
         print(f"\n4️⃣  Checking Transaction Log (History)...")
         # Assuming you implemented get_tx_log in PostgresStorage
-        history = pg_storage.get_tx_log(limit=5)
+        history = pg_storage.get_tx_log(session_id="session_1", limit=5)
 
         for tx in history:
             op = tx.get("op", "UNKNOWN")
@@ -108,7 +108,7 @@ def main():
 
         # Step 8: Rollback
         print(f"\n5️⃣  Oops! Update was a mistake. Rolling back...")
-        memory.rollback(1)
+        memory.rollback(session_id="session_1", steps=1)
 
         final = pg_storage.load(fact_id)
         print(f"   Restored Level: {final['payload']['level']}")

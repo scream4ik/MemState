@@ -150,12 +150,13 @@ class InMemoryStorage(StorageBackend):
         with self._lock:
             self._tx_log.append(tx_data)
 
-    def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Retrieves and returns a portion of the transaction log. The transaction log is accessed in
         reverse order of insertion, i.e., the most recently added item is the first in the result.
 
         Args:
+            session_id (str): The identifier of the session whose transactions should be retrieved.
             limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
             offset (int): The starting position relative to the most recent entry that determines where to begin
                 retrieving the log entries. Default is 0.
@@ -165,7 +166,9 @@ class InMemoryStorage(StorageBackend):
                 contain details of individual transaction log entries.
         """
         with self._lock:
-            return list(reversed(self._tx_log))[offset : offset + limit]
+            reversed_log = reversed(self._tx_log)
+            filtered = [tx for tx in reversed_log if tx.get("session_id") == session_id]
+            return filtered[offset : offset + limit]
 
     def delete_session(self, session_id: str) -> list[str]:
         """
@@ -186,26 +189,6 @@ class InMemoryStorage(StorageBackend):
                 del self._store[fid]
             return to_delete
 
-    def remove_last_tx(self, count: int) -> None:
-        """
-        Removes a specified number of the most recent transactions from the transaction
-        log. If the number of transactions to remove exceeds the current size of the
-        log, the entire log will be cleared.
-
-        Args:
-            count (int): The number of transactions to remove. Must be a positive integer.
-
-        Returns:
-            None
-        """
-        with self._lock:
-            if count <= 0:
-                return
-            if count >= len(self._tx_log):
-                self._tx_log.clear()
-            else:
-                self._tx_log = self._tx_log[:-count]
-
     def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
         """
         Retrieves all facts associated with a specific session.
@@ -221,6 +204,25 @@ class InMemoryStorage(StorageBackend):
             A list of dictionaries, where each dictionary represents a fact related to the specified session.
         """
         return [f for f in self._store.values() if f.get("session_id") == session_id]
+
+    def delete_txs(self, tx_uuids: list[str]) -> None:
+        """
+        Removes a list of transactions from the transaction log whose session IDs match the provided
+        transaction IDs. If the provided list is empty, no transactions are processed.
+
+        Args:
+            tx_uuids (list[str]): A list of transaction UUIDs to be removed from the log.
+
+        Returns:
+            None
+        """
+        if not tx_uuids:
+            return
+
+        with self._lock:
+            ids_to_delete = set(tx_uuids)
+
+            self._tx_log = [tx for tx in self._tx_log if tx["uuid"] not in ids_to_delete]
 
     def close(self) -> None:
         """
@@ -381,12 +383,13 @@ class AsyncInMemoryStorage(AsyncStorageBackend):
         async with self._lock:
             self._tx_log.append(tx_data)
 
-    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    async def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves and returns a portion of the transaction log. The transaction log is accessed in
         reverse order of insertion, i.e., the most recently added item is the first in the result.
 
         Args:
+            session_id (str): The identifier of the session whose transactions should be retrieved.
             limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
             offset (int): The starting position relative to the most recent entry that determines where to begin
                 retrieving the log entries. Default is 0.
@@ -396,7 +399,9 @@ class AsyncInMemoryStorage(AsyncStorageBackend):
                 contain details of individual transaction log entries.
         """
         async with self._lock:
-            return list(reversed(self._tx_log))[offset : offset + limit]
+            reversed_log = reversed(self._tx_log)
+            filtered = [tx for tx in reversed_log if tx.get("session_id") == session_id]
+            return filtered[offset : offset + limit]
 
     async def delete_session(self, session_id: str) -> list[str]:
         """
@@ -417,27 +422,6 @@ class AsyncInMemoryStorage(AsyncStorageBackend):
                 del self._store[fid]
             return to_delete
 
-    async def remove_last_tx(self, count: int) -> None:
-        """
-        Asynchronously removes a specified number of the most recent transactions from the transaction
-        log. If the number of transactions to remove exceeds the current size of the
-        log, the entire log will be cleared.
-
-        Args:
-            count (int): The number of transactions to remove. Must be a positive integer.
-
-        Returns:
-            None
-        """
-        async with self._lock:
-            if count <= 0:
-                return
-
-            if count >= len(self._tx_log):
-                self._tx_log.clear()
-            else:
-                self._tx_log = self._tx_log[:-count]
-
     async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves all facts associated with a specific session.
@@ -453,6 +437,25 @@ class AsyncInMemoryStorage(AsyncStorageBackend):
             A list of dictionaries, where each dictionary represents a fact related to the specified session.
         """
         return [f for f in self._store.values() if f.get("session_id") == session_id]
+
+    async def delete_txs(self, tx_uuids: list[str]) -> None:
+        """
+        Asynchronously removes a list of transactions from the transaction log whose session IDs match the provided
+        transaction IDs. If the provided list is empty, no transactions are processed.
+
+        Args:
+            tx_uuids (list[str]): A list of transaction UUIDs to be removed from the log.
+
+        Returns:
+            None
+        """
+        if not tx_uuids:
+            return
+
+        async with self._lock:
+            ids_to_delete = set(tx_uuids)
+
+            self._tx_log = [tx for tx in self._tx_log if tx["uuid"] not in ids_to_delete]
 
     async def close(self) -> None:
         """

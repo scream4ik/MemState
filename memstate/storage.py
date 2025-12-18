@@ -194,6 +194,7 @@ class MemoryStore:
     def _log_tx(
         self,
         op: Operation,
+        session_id: str | None,
         fact_id: str | None,
         before: dict[str, Any] | None,
         after: dict[str, Any] | None,
@@ -217,6 +218,7 @@ class MemoryStore:
         """
         self._seq += 1
         tx = TxEntry(
+            session_id=session_id,
             seq=self._seq,
             ts=datetime.now(timezone.utc),
             op=op,
@@ -299,7 +301,7 @@ class MemoryStore:
             try:
                 new_state = fact.model_dump(mode="json")
                 self.storage.save(new_state)
-                self._log_tx(op, fact.id, previous_state, new_state, actor, reason)
+                self._log_tx(op, fact.session_id, fact.id, previous_state, new_state, actor, reason)
                 self._notify_hooks(op, fact.id, fact)
 
                 return fact.id
@@ -399,7 +401,7 @@ class MemoryStore:
 
             try:
                 self.storage.save(draft)
-                self._log_tx(Operation.UPDATE, fact_id, before, draft, actor, reason)
+                self._log_tx(Operation.UPDATE, draft["session_id"], fact_id, before, draft, actor, reason)
                 self._notify_hooks(Operation.UPDATE, fact_id, Fact(**draft))
             except HookError as e:
                 self.storage.save(before)
@@ -407,12 +409,13 @@ class MemoryStore:
 
             return fact_id
 
-    def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
+    def delete(self, session_id: str | None, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
         """
         Deletes an existing fact from storage identified by the given fact ID. This operation logs the
         deletion, notifies hooks about the operation, and ensures thread safety during execution.
 
         Args:
+            session_id (str | None): Optional identifier for the session in which the deletion is performed. Defaults to None.
             fact_id (str): The unique identifier of the fact to be deleted.
             actor (str | None): Optional identifier for the user or system performing the deletion. Defaults to None if not applicable.
             reason (str | None): Optional reason or context for the deletion operation. Defaults to None.
@@ -429,7 +432,7 @@ class MemoryStore:
                 raise MemoryStoreError("Fact not found")
 
             self.storage.delete(fact_id)
-            self._log_tx(Operation.DELETE, fact_id, existing, None, actor, reason)
+            self._log_tx(Operation.DELETE, session_id, fact_id, existing, None, actor, reason)
             self._notify_hooks(Operation.DELETE, fact_id, Fact(**existing))
             return fact_id
 
@@ -449,7 +452,9 @@ class MemoryStore:
         """
         return self.storage.load(fact_id)
 
-    def query(self, typename: str | None = None, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def query(
+        self, typename: str | None = None, filters: dict[str, Any] | None = None, session_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Executes a query against the storage with optional type and filter constraints.
 
@@ -463,11 +468,17 @@ class MemoryStore:
                 to None, no type filtering is applied.
             filters (dict[str, Any] | None): A dictionary representing JSON-style filter constraints to
                 apply to the query. If set to None, no filter constraints are applied.
+            session_id (str | None): Optional identifier for the session associated with the query. Defaults to None.
 
         Returns:
             A list of dictionaries containing query results that match the given filters and type constraints.
         """
-        return self.storage.query(type_filter=typename, json_filters=filters)
+        final_filters = (filters or {}).copy()
+
+        if session_id:
+            final_filters["session_id"] = session_id
+
+        return self.storage.query(type_filter=typename, json_filters=final_filters)
 
     def promote_session(
         self,
@@ -505,7 +516,7 @@ class MemoryStore:
                 self.storage.save(fact_dict)
 
                 promoted.append(fact_dict["id"])
-                self._log_tx(Operation.PROMOTE, fact_dict["id"], before, fact_dict, actor, reason)
+                self._log_tx(Operation.PROMOTE, session_id, fact_dict["id"], before, fact_dict, actor, reason)
                 self._notify_hooks(Operation.PROMOTE, fact_dict["id"], Fact(**fact_dict))
 
             return promoted
@@ -527,6 +538,7 @@ class MemoryStore:
         if deleted_ids:
             self._log_tx(
                 Operation.DISCARD_SESSION,
+                session_id,
                 None,
                 None,
                 None,
@@ -535,13 +547,14 @@ class MemoryStore:
             )
         return len(deleted_ids)
 
-    def rollback(self, steps: int = 1) -> None:
+    def rollback(self, session_id: str, steps: int = 1) -> None:
         """
         Reverts the state of the storage by rolling back a specified number of transactional
         operations. Each operation is extracted from the transaction log and reversed based on
         its type (e.g., CREATE, UPDATE, DELETE).
 
         Args:
+            session_id (str): The unique identifier of the session to roll back.
             steps (int): The number of transactional steps to roll back. Defaults to 1. Must be a positive integer.
 
         Returns:
@@ -551,7 +564,7 @@ class MemoryStore:
             if steps <= 0:
                 return
 
-            logs = self.storage.get_tx_log(limit=steps)
+            logs = self.storage.get_tx_log(session_id=session_id, limit=steps)
 
             for entry in logs:
                 op = entry["op"]
@@ -571,7 +584,8 @@ class MemoryStore:
                         self.storage.save(entry["fact_before"])
                         self._notify_hooks(Operation.COMMIT, fid, Fact(**entry["fact_before"]))
 
-            self.storage.remove_last_tx(len(logs))
+            tx_uuids = [entry["uuid"] for entry in logs]
+            self.storage.delete_txs(tx_uuids)
 
 
 class AsyncMemoryStore:
@@ -656,6 +670,7 @@ class AsyncMemoryStore:
     async def _log_tx(
         self,
         op: Operation,
+        session_id: str | None,
         fact_id: str | None,
         before: dict[str, Any] | None,
         after: dict[str, Any] | None,
@@ -668,6 +683,7 @@ class AsyncMemoryStore:
 
         Args:
             op (Operation): The operation being performed.
+            session_id (str | None): The identifier of the session associated with the operation, or None if not applicable.
             fact_id (str | None): The unique identifier of the fact associated with the operation, or None if not applicable.
             before (dict[str, Any] | None): A dictionary containing the state of the fact before the operation, or None if not applicable.
             after (dict[str, Any] | None): A dictionary containing the state of the fact after the operation, or None if not applicable.
@@ -679,6 +695,7 @@ class AsyncMemoryStore:
         """
         self._seq += 1
         tx = TxEntry(
+            session_id=session_id,
             seq=self._seq,
             ts=datetime.now(timezone.utc),
             op=op,
@@ -761,7 +778,7 @@ class AsyncMemoryStore:
             try:
                 new_state = fact.model_dump(mode="json")
                 await self.storage.save(new_state)
-                await self._log_tx(op, fact.id, previous_state, new_state, actor, reason)
+                await self._log_tx(op, fact.session_id, fact.id, previous_state, new_state, actor, reason)
                 await self._notify_hooks(op, fact.id, fact)
 
                 return fact.id
@@ -863,7 +880,7 @@ class AsyncMemoryStore:
 
             try:
                 await self.storage.save(draft)
-                await self._log_tx(Operation.UPDATE, fact_id, before, draft, actor, reason)
+                await self._log_tx(Operation.UPDATE, draft["session_id"], fact_id, before, draft, actor, reason)
                 await self._notify_hooks(Operation.UPDATE, fact_id, Fact(**draft))
             except HookError as e:
                 await self.storage.save(before)
@@ -871,12 +888,15 @@ class AsyncMemoryStore:
 
             return fact_id
 
-    async def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
+    async def delete(
+        self, session_id: str | None, fact_id: str, actor: str | None = None, reason: str | None = None
+    ) -> str:
         """
         Asynchronously deletes an existing fact from storage identified by the given fact ID. This operation logs the
         deletion, notifies hooks about the operation, and ensures thread safety during execution.
 
         Args:
+            session_id (str | None): Optional identifier for the session associated with the deletion operation. Defaults to None.
             fact_id (str): The unique identifier of the fact to be deleted.
             actor (str | None): Optional identifier for the user or system performing the deletion. Defaults to None if not applicable.
             reason (str | None): Optional reason or context for the deletion operation. Defaults to None.
@@ -893,7 +913,7 @@ class AsyncMemoryStore:
                 raise MemoryStoreError("Fact not found")
 
             await self.storage.delete(fact_id)
-            await self._log_tx(Operation.DELETE, fact_id, existing, None, actor, reason)
+            await self._log_tx(Operation.DELETE, session_id, fact_id, existing, None, actor, reason)
             await self._notify_hooks(Operation.DELETE, fact_id, Fact(**existing))
             return fact_id
 
@@ -913,7 +933,9 @@ class AsyncMemoryStore:
         """
         return await self.storage.load(fact_id)
 
-    async def query(self, typename: str | None = None, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def query(
+        self, typename: str | None = None, filters: dict[str, Any] | None = None, session_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Asynchronously executes a query against the storage with optional type and filter constraints.
 
@@ -927,11 +949,17 @@ class AsyncMemoryStore:
                 to None, no type filtering is applied.
             filters (dict[str, Any] | None): A dictionary representing JSON-style filter constraints to
                 apply to the query. If set to None, no filter constraints are applied.
+            session_id (str | None): Optional identifier for the session associated with the query. Defaults to None.
 
         Returns:
             A list of dictionaries containing query results that match the given filters and type constraints.
         """
-        return await self.storage.query(type_filter=typename, json_filters=filters)
+        final_filters = (filters or {}).copy()
+
+        if session_id:
+            final_filters["session_id"] = session_id
+
+        return await self.storage.query(type_filter=typename, json_filters=final_filters)
 
     async def promote_session(
         self,
@@ -969,7 +997,7 @@ class AsyncMemoryStore:
                 await self.storage.save(fact_dict)
 
                 promoted.append(fact_dict["id"])
-                await self._log_tx(Operation.PROMOTE, fact_dict["id"], before, fact_dict, actor, reason)
+                await self._log_tx(Operation.PROMOTE, session_id, fact_dict["id"], before, fact_dict, actor, reason)
                 await self._notify_hooks(Operation.PROMOTE, fact_dict["id"], Fact(**fact_dict))
 
             return promoted
@@ -992,6 +1020,7 @@ class AsyncMemoryStore:
             if deleted_ids:
                 await self._log_tx(
                     Operation.DISCARD_SESSION,
+                    session_id,
                     None,
                     None,
                     None,
@@ -1002,13 +1031,14 @@ class AsyncMemoryStore:
                 await self._notify_hooks(Operation.DISCARD_SESSION, "", dummy)
             return len(deleted_ids)
 
-    async def rollback(self, steps: int = 1) -> None:
+    async def rollback(self, session_id: str, steps: int = 1) -> None:
         """
         Asynchronously reverts the state of the storage by rolling back a specified number of transactional
         operations. Each operation is extracted from the transaction log and reversed based on
         its type (e.g., CREATE, UPDATE, DELETE).
 
         Args:
+            session_id (str): The unique identifier of the session to roll back.
             steps (int): The number of transactional steps to roll back. Defaults to 1. Must be a positive integer.
 
         Returns:
@@ -1018,7 +1048,7 @@ class AsyncMemoryStore:
             if steps <= 0:
                 return
 
-            logs = await self.storage.get_tx_log(limit=steps)
+            logs = await self.storage.get_tx_log(session_id=session_id, limit=steps)
 
             for entry in logs:
                 op = entry["op"]
@@ -1038,4 +1068,5 @@ class AsyncMemoryStore:
                         await self.storage.save(entry["fact_before"])
                         await self._notify_hooks(Operation.COMMIT, fid, Fact(**entry["fact_before"]))
 
-            await self.storage.remove_last_tx(len(logs))
+            tx_uuids = [entry["uuid"] for entry in logs]
+            await self.storage.delete_txs(tx_uuids)

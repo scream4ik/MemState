@@ -41,7 +41,7 @@ async def test_lazy_initialization_creates_collection(chroma_client, collection_
 
 async def test_commit_upserts_data(chroma_client, collection_name):
     hook = AsyncChromaSyncHook(client=chroma_client, collection_name=collection_name, text_field="content")
-    await hook(op=Operation.COMMIT, fact_id="fact_1", data=Fact(type="memory", payload={"content": "Hello World"}))
+    await hook(op=Operation.COMMIT, fact_id="fact_1", fact=Fact(type="memory", payload={"content": "Hello World"}))
 
     coll = await chroma_client.get_collection(collection_name)
     result = await coll.get(ids=["fact_1"])
@@ -60,7 +60,7 @@ async def test_promote_updates_data(chroma_client, collection_name):
 
     # Promote
     await hook(
-        op=Operation.PROMOTE, fact_id="fact_1", data=Fact(type="memory", payload={"text": "New", "status": "committed"})
+        op=Operation.PROMOTE, fact_id="fact_1", fact=Fact(type="memory", payload={"text": "New", "status": "committed"})
     )
 
     result = await coll.get(ids=["fact_1"])
@@ -74,7 +74,7 @@ async def test_delete_removes_data(chroma_client, collection_name):
 
     await coll.add(ids=["del_1"], documents=["To delete"])
 
-    await hook(op=Operation.DELETE, fact_id="del_1", data=None)
+    await hook(op=Operation.DELETE, fact_id="del_1", fact=None)
 
     result = await coll.get(ids=["del_1"])
     assert len(result["ids"]) == 0
@@ -86,7 +86,7 @@ async def test_discard_session_is_ignored(chroma_client, collection_name):
 
     await coll.add(ids=["safe_1"], documents=["Stay"])
 
-    await hook(op=Operation.DISCARD_SESSION, fact_id="safe_1", data=None)
+    await hook(op=Operation.DISCARD_SESSION, fact_id="safe_1", fact=None)
 
     result = await coll.get(ids=["safe_1"])
     assert len(result["ids"]) == 1
@@ -96,7 +96,7 @@ async def test_text_formatter_strategy(chroma_client, collection_name):
     hook = AsyncChromaSyncHook(
         client=chroma_client, collection_name=collection_name, text_formatter=lambda d: f"{d['key']}: {d['val']}"
     )
-    await hook(op=Operation.COMMIT, fact_id="fmt_1", data=Fact(type="memory", payload={"key": "A", "val": "B"}))
+    await hook(op=Operation.COMMIT, fact_id="fmt_1", fact=Fact(type="memory", payload={"key": "A", "val": "B"}))
 
     coll = await chroma_client.get_collection(collection_name)
     result = await coll.get(ids=["fmt_1"])
@@ -105,7 +105,7 @@ async def test_text_formatter_strategy(chroma_client, collection_name):
 
 async def test_fallback_missing_text_skips_upsert(chroma_client, collection_name):
     hook = AsyncChromaSyncHook(client=chroma_client, collection_name=collection_name, text_field="missing_field")
-    await hook(op=Operation.COMMIT, fact_id="bad_1", data=Fact(type="memory", payload={"other": "stuff"}))
+    await hook(op=Operation.COMMIT, fact_id="bad_1", fact=Fact(type="memory", payload={"other": "stuff"}))
 
     coll = await chroma_client.get_collection(collection_name)
     result = await coll.get(ids=["bad_1"])

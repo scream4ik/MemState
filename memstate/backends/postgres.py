@@ -8,6 +8,7 @@ try:
     from sqlalchemy import (
         Column,
         ColumnElement,
+        Index,
         Integer,
         MetaData,
         String,
@@ -65,8 +66,11 @@ class PostgresStorage(StorageBackend):
             f"{table_prefix}_log",
             self._metadata,
             Column("seq", Integer, primary_key=True, autoincrement=True),
+            Column("session_id", String, index=True, nullable=True),
             Column("entry", JSONB, nullable=False),
+            Index(f"ix_{table_prefix}_log_entry_gin", "entry", postgresql_using="gin"),
         )
+        Index(f"ix_{table_prefix}_log_uuid", self._log_table.c.entry["uuid"].astext, postgresql_using="btree"),
 
         with self._engine.begin() as conn:
             self._metadata.create_all(conn)
@@ -187,15 +191,18 @@ class PostgresStorage(StorageBackend):
         Returns:
             None
         """
-        with self._engine.begin() as conn:
-            conn.execute(self._log_table.insert().values(entry=tx_data))
+        session_id = tx_data.get("session_id")
 
-    def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        with self._engine.begin() as conn:
+            conn.execute(self._log_table.insert().values(session_id=session_id, entry=tx_data))
+
+    def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Retrieves and returns a portion of the transaction log. The transaction log is accessed in
         reverse order of insertion, i.e., the most recently added item is the first in the result.
 
         Args:
+            session_id (str): The identifier of the session whose transactions should be retrieved.
             limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
             offset (int): The starting position relative to the most recent entry that determines where to begin
                 retrieving the log entries. Default is 0.
@@ -204,7 +211,13 @@ class PostgresStorage(StorageBackend):
             A list of dictionaries representing the requested subset of the transaction log. The dictionaries
                 contain details of individual transaction log entries.
         """
-        stmt = select(self._log_table.c.entry).order_by(desc(self._log_table.c.seq)).limit(limit).offset(offset)
+        stmt = (
+            select(self._log_table.c.entry)
+            .where(self._log_table.c.session_id == session_id)
+            .order_by(desc(self._log_table.c.seq))
+            .limit(limit)
+            .offset(offset)
+        )
         with self._engine.connect() as conn:
             rows = conn.execute(stmt).all()
             return [r[0] for r in rows]
@@ -232,28 +245,6 @@ class PostgresStorage(StorageBackend):
             result = conn.execute(del_stmt)
             return [r[0] for r in result.all()]
 
-    def remove_last_tx(self, count: int) -> None:
-        """
-        Removes a specified number of the most recent transactions from the transaction
-        log. If the number of transactions to remove exceeds the current size of the
-        log, the entire log will be cleared.
-
-        Args:
-            count (int): The number of transactions to remove. Must be a positive integer.
-
-        Returns:
-            None
-        """
-        if count <= 0:
-            return
-
-        subquery = select(self._log_table.c.seq).order_by(desc(self._log_table.c.seq)).limit(count).scalar_subquery()
-
-        stmt = delete(self._log_table).where(self._log_table.c.seq.in_(subquery))
-
-        with self._engine.begin() as conn:
-            conn.execute(stmt)
-
     def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
         """
         Retrieves all facts associated with a specific session.
@@ -272,6 +263,25 @@ class PostgresStorage(StorageBackend):
         with self._engine.connect() as conn:
             rows = conn.execute(stmt).all()
             return [r[0] for r in rows]
+
+    def delete_txs(self, tx_uuids: list[str]) -> None:
+        """
+        Removes a list of transactions from the transaction log whose session IDs match the provided
+        transaction IDs. If the provided list is empty, no transactions are processed.
+
+        Args:
+            tx_uuids (list[str]): A list of transaction UUIDs to be removed from the log.
+
+        Returns:
+            None
+        """
+        if not tx_uuids:
+            return
+
+        stmt = delete(self._log_table).where(self._log_table.c.entry["uuid"].astext.in_(tx_uuids))
+
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
 
     def close(self) -> None:
         """
@@ -330,8 +340,11 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             f"{table_prefix}_log",
             self._metadata,
             Column("seq", Integer, primary_key=True, autoincrement=True),
+            Column("session_id", String, index=True, nullable=True),
             Column("entry", JSONB, nullable=False),
+            Index(f"ix_{table_prefix}_log_entry_gin", "entry", postgresql_using="gin"),
         )
+        Index(f"ix_{table_prefix}_log_uuid", self._log_table.c.entry["uuid"].astext, postgresql_using="btree"),
 
     async def create_tables(self) -> None:
         """
@@ -443,15 +456,18 @@ class AsyncPostgresStorage(AsyncStorageBackend):
         Returns:
             None
         """
-        async with self._engine.begin() as conn:
-            await conn.execute(self._log_table.insert().values(entry=tx_data))
+        session_id = tx_data.get("session_id")
 
-    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        async with self._engine.begin() as conn:
+            await conn.execute(self._log_table.insert().values(session_id=session_id, entry=tx_data))
+
+    async def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves and returns a portion of the transaction log. The transaction log is accessed in
         reverse order of insertion, i.e., the most recently added item is the first in the result.
 
         Args:
+            session_id (str): The identifier of the session whose transactions should be retrieved.
             limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
             offset (int): The starting position relative to the most recent entry that determines where to begin
                 retrieving the log entries. Default is 0.
@@ -460,7 +476,13 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             A list of dictionaries representing the requested subset of the transaction log. The dictionaries
                 contain details of individual transaction log entries.
         """
-        stmt = select(self._log_table.c.entry).order_by(desc(self._log_table.c.seq)).limit(limit).offset(offset)
+        stmt = (
+            select(self._log_table.c.entry)
+            .where(self._log_table.c.session_id == session_id)
+            .order_by(desc(self._log_table.c.seq))
+            .limit(limit)
+            .offset(offset)
+        )
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             return [r[0] for r in result.all()]
@@ -487,28 +509,6 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             result = await conn.execute(del_stmt)
             return [r[0] for r in result.all()]
 
-    async def remove_last_tx(self, count: int) -> None:
-        """
-        Asynchronously removes a specified number of the most recent transactions from the transaction
-        log. If the number of transactions to remove exceeds the current size of the
-        log, the entire log will be cleared.
-
-        Args:
-            count (int): The number of transactions to remove. Must be a positive integer.
-
-        Returns:
-            None
-        """
-        if count <= 0:
-            return
-
-        subquery = select(self._log_table.c.seq).order_by(desc(self._log_table.c.seq)).limit(count).scalar_subquery()
-
-        stmt = delete(self._log_table).where(self._log_table.c.seq.in_(subquery))
-
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
-
     async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves all facts associated with a specific session.
@@ -527,6 +527,25 @@ class AsyncPostgresStorage(AsyncStorageBackend):
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             return [r[0] for r in result.all()]
+
+    async def delete_txs(self, tx_uuids: list[str]) -> None:
+        """
+        Asynchronously removes a list of transactions from the transaction log whose session IDs match the provided
+        transaction IDs. If the provided list is empty, no transactions are processed.
+
+        Args:
+            tx_uuids (list[str]): A list of transaction UUIDs to be removed from the log.
+
+        Returns:
+            None
+        """
+        if not tx_uuids:
+            return
+
+        stmt = delete(self._log_table).where(self._log_table.c.entry["uuid"].astext.in_(tx_uuids))
+
+        async with self._engine.begin() as conn:
+            await conn.execute(stmt)
 
     async def close(self) -> None:
         """

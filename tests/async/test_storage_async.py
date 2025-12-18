@@ -61,24 +61,24 @@ async def test_immutable_constraint_conflict(memory):
 
 async def test_delete_non_existent_fact(memory):
     with pytest.raises(MemoryStoreError):
-        await memory.delete("ghost-id")
+        await memory.delete(session_id="session_1", fact_id="ghost-id")
 
 
 async def test_rollback(memory):
     memory.register_schema("user", User)
 
-    fid = await memory.commit(Fact(type="user", payload={"name": "Neo", "age": 10}))
+    fid = await memory.commit(fact=Fact(type="user", payload={"name": "Neo", "age": 10}), session_id="session_1")
 
     await memory.update(fid, {"payload": {"age": 99}})
     result = await memory.get(fid)
     assert result["payload"]["age"] == 99
 
-    await memory.rollback(1)
+    await memory.rollback(session_id="session_1", steps=1)
 
     fact = await memory.get(fid)
     assert fact["payload"]["age"] == 10
 
-    logs = await memory.storage.get_tx_log(limit=10)
+    logs = await memory.storage.get_tx_log(session_id="session_1", limit=10)
     assert len(logs) == 1
     assert logs[0]["op"] == "COMMIT"
 
@@ -87,14 +87,14 @@ async def test_hooks_called(memory):
     mock_hook = AsyncMock()
     memory.add_hook(mock_hook)
 
-    fid = await memory.commit(Fact(type="user", payload={"name": "HookTester", "age": 30}))
+    fid = await memory.commit(fact=Fact(type="user", payload={"name": "HookTester", "age": 30}), session_id="session_1")
 
     mock_hook.assert_called_with("COMMIT", fid, ANY)
 
     await memory.update(fid, {"payload": {"age": 31}})
     mock_hook.assert_called_with("UPDATE", fid, ANY)
 
-    await memory.delete(fid)
+    await memory.delete(session_id="session_1", fact_id=fid)
     mock_hook.assert_called_with("DELETE", fid, ANY)
 
 

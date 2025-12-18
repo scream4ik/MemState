@@ -104,9 +104,9 @@ def main():
     doc2 = KnowledgeBase(content="Mars is known as the Red Planet due to iron oxide.")
     doc3 = UserPref(theme="dark")  # This should NOT be in vectors (filter by type)
 
-    memory.commit_model(model=doc1)
-    doc2_id = memory.commit_model(model=doc2)
-    memory.commit_model(model=doc3)
+    memory.commit_model(model=doc1, session_id="session_1")
+    doc2_id = memory.commit_model(model=doc2, session_id="session_1")
+    memory.commit_model(model=doc3, session_id="session_1")
 
     print("\n--- Phase 2: RAG Search (Emulation) ---")
     # User asks: "Tell me about the red planet"
@@ -145,7 +145,7 @@ def main():
     print("\n--- Phase 4: Forgetting (Deletion) ---")
     # Deleting a fact from the database
     print("🗑 Deleting Mars fact...")
-    memory.delete(doc2_id)
+    memory.delete(session_id="session_1", fact_id=doc2_id)
 
     # Checking the search
     found_ids = vector_db.search("Mars")

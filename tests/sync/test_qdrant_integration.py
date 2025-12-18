@@ -31,7 +31,7 @@ def test_initialization_creates_collection(client, collection_name):
 
 def test_commit_upserts_data(client, collection_name, fact_id):
     hook = QdrantSyncHook(client=client, collection_name=collection_name, text_field="content")
-    hook(op=Operation.COMMIT, fact_id=fact_id, data=Fact(type="memory", payload={"content": "Hello World"}))
+    hook(op=Operation.COMMIT, fact_id=fact_id, fact=Fact(type="memory", payload={"content": "Hello World"}))
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
     point = points[0]
@@ -60,7 +60,7 @@ def test_promote_updates_data(client, collection_name, fact_id):
 
     # Promote
     hook(
-        op=Operation.PROMOTE, fact_id=fact_id, data=Fact(type="memory", payload={"text": "New", "status": "committed"})
+        op=Operation.PROMOTE, fact_id=fact_id, fact=Fact(type="memory", payload={"text": "New", "status": "committed"})
     )
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
@@ -86,7 +86,7 @@ def test_delete_removes_data(client, collection_name, fact_id):
         ],
     )
 
-    hook(op=Operation.DELETE, fact_id=fact_id, data=None)
+    hook(op=Operation.DELETE, fact_id=fact_id, fact=None)
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 0
@@ -108,7 +108,7 @@ def test_discard_session_is_ignored(client, collection_name, fact_id):
         ],
     )
 
-    hook(op=Operation.DISCARD_SESSION, fact_id=fact_id, data=None)
+    hook(op=Operation.DISCARD_SESSION, fact_id=fact_id, fact=None)
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 1
@@ -118,7 +118,7 @@ def test_text_formatter_strategy(client, collection_name, fact_id):
     hook = QdrantSyncHook(
         client=client, collection_name=collection_name, text_formatter=lambda d: f"{d['key']}: {d['val']}"
     )
-    hook(op=Operation.COMMIT, fact_id=fact_id, data=Fact(type="memory", payload={"key": "A", "val": "B"}))
+    hook(op=Operation.COMMIT, fact_id=fact_id, fact=Fact(type="memory", payload={"key": "A", "val": "B"}))
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
     point = points[0]
@@ -128,7 +128,7 @@ def test_text_formatter_strategy(client, collection_name, fact_id):
 
 def test_fallback_missing_text_skips_upsert(client, collection_name, fact_id):
     hook = QdrantSyncHook(client=client, collection_name=collection_name, text_field="missing_field")
-    hook(op=Operation.COMMIT, fact_id=fact_id, data=Fact(type="memory", payload={"other": "stuff"}))
+    hook(op=Operation.COMMIT, fact_id=fact_id, fact=Fact(type="memory", payload={"other": "stuff"}))
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 0

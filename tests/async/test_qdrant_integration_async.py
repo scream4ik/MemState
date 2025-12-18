@@ -37,7 +37,7 @@ async def test_lazy_initialization_creates_collection(client, collection_name):
 
 async def test_commit_upserts_data(client, collection_name, fact_id):
     hook = AsyncQdrantSyncHook(client=client, collection_name=collection_name, text_field="content")
-    await hook(op=Operation.COMMIT, fact_id=fact_id, data=Fact(type="memory", payload={"content": "Hello World"}))
+    await hook(op=Operation.COMMIT, fact_id=fact_id, fact=Fact(type="memory", payload={"content": "Hello World"}))
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
     point = points[0]
@@ -69,7 +69,7 @@ async def test_promote_updates_data(client, collection_name, fact_id):
 
     # Promote
     await hook(
-        op=Operation.PROMOTE, fact_id=fact_id, data=Fact(type="memory", payload={"text": "New", "status": "committed"})
+        op=Operation.PROMOTE, fact_id=fact_id, fact=Fact(type="memory", payload={"text": "New", "status": "committed"})
     )
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
@@ -96,7 +96,7 @@ async def test_delete_removes_data(client, collection_name, fact_id):
         ],
     )
 
-    await hook(op=Operation.DELETE, fact_id=fact_id, data=None)
+    await hook(op=Operation.DELETE, fact_id=fact_id, fact=None)
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 0
@@ -119,7 +119,7 @@ async def test_discard_session_is_ignored(client, collection_name, fact_id):
         ],
     )
 
-    await hook(op=Operation.DISCARD_SESSION, fact_id=fact_id, data=None)
+    await hook(op=Operation.DISCARD_SESSION, fact_id=fact_id, fact=None)
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 1
@@ -129,7 +129,7 @@ async def test_text_formatter_strategy(client, collection_name, fact_id):
     hook = AsyncQdrantSyncHook(
         client=client, collection_name=collection_name, text_formatter=lambda d: f"{d['key']}: {d['val']}"
     )
-    await hook(op=Operation.COMMIT, fact_id=fact_id, data=Fact(type="memory", payload={"key": "A", "val": "B"}))
+    await hook(op=Operation.COMMIT, fact_id=fact_id, fact=Fact(type="memory", payload={"key": "A", "val": "B"}))
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
     point = points[0]
@@ -139,7 +139,7 @@ async def test_text_formatter_strategy(client, collection_name, fact_id):
 
 async def test_fallback_missing_text_skips_upsert(client, collection_name, fact_id):
     hook = AsyncQdrantSyncHook(client=client, collection_name=collection_name, text_field="missing_field")
-    await hook(op=Operation.COMMIT, fact_id=fact_id, data=Fact(type="memory", payload={"other": "stuff"}))
+    await hook(op=Operation.COMMIT, fact_id=fact_id, fact=Fact(type="memory", payload={"other": "stuff"}))
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 0

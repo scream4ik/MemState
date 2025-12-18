@@ -35,7 +35,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Retrieve transaction history (newest first typically, or ordered by seq)."""
         pass
 
@@ -45,13 +45,13 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    def remove_last_tx(self, count: int) -> None:
-        """Removes the last N entries from the transaction log (LIFO)."""
+    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        """Retrieve all facts belonging to a specific session."""
         pass
 
     @abstractmethod
-    def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
-        """Retrieve all facts belonging to a specific session."""
+    def delete_txs(self, tx_uuids: list[str]) -> None:
+        """Delete specific transactions from the log by their UUIDs."""
         pass
 
     def close(self) -> None:
@@ -90,7 +90,7 @@ class AsyncStorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    async def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Retrieve transaction history asynchronously."""
         pass
 
@@ -100,13 +100,13 @@ class AsyncStorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def remove_last_tx(self, count: int) -> None:
-        """Removes the last N entries from the transaction log (LIFO)."""
+    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        """Retrieve all facts belonging to a specific session."""
         pass
 
     @abstractmethod
-    async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
-        """Retrieve all facts belonging to a specific session."""
+    async def delete_txs(self, tx_uuids: list[str]) -> None:
+        """Delete specific transactions from the log by their UUIDs."""
         pass
 
     async def close(self) -> None:

@@ -91,6 +91,8 @@ class SQLiteStorage(StorageBackend):
                       )
                       """
             )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_uuid ON tx_log(uuid)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_session ON tx_log(json_extract(data, '$.session_id'))")
             self._conn.commit()
 
     def load(self, id: str) -> dict[str, Any] | None:
@@ -214,12 +216,13 @@ class SQLiteStorage(StorageBackend):
             )
             self._conn.commit()
 
-    def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Retrieves and returns a portion of the transaction log. The transaction log is accessed in
         reverse order of insertion, i.e., the most recently added item is the first in the result.
 
         Args:
+            session_id (str): The identifier of the session whose transactions should be retrieved.
             limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
             offset (int): The starting position relative to the most recent entry that determines where to begin
                 retrieving the log entries. Default is 0.
@@ -230,9 +233,12 @@ class SQLiteStorage(StorageBackend):
         """
         with self._lock:
             c = self._conn.cursor()
-            c.execute("SELECT data FROM tx_log ORDER BY tx_id DESC LIMIT ? OFFSET ?", (limit, offset))
-            rows = c.fetchall()
 
+            c.execute(
+                "SELECT data FROM tx_log WHERE json_extract(data, '$.session_id') = ? ORDER BY tx_id DESC LIMIT ? OFFSET ?",
+                (session_id, limit, offset),
+            )
+            rows = c.fetchall()
             return [json.loads(row["data"]) for row in rows]
 
     def delete_session(self, session_id: str) -> list[str]:
@@ -257,30 +263,6 @@ class SQLiteStorage(StorageBackend):
             self._conn.commit()
             return ids
 
-    def remove_last_tx(self, count: int) -> None:
-        """
-        Removes a specified number of the most recent transactions from the transaction
-        log. If the number of transactions to remove exceeds the current size of the
-        log, the entire log will be cleared.
-
-        Args:
-            count (int): The number of transactions to remove. Must be a positive integer.
-
-        Returns:
-            None
-        """
-        with self._lock:
-            c = self._conn.cursor()
-            c.execute(
-                """
-                DELETE
-                FROM tx_log
-                WHERE tx_id IN (SELECT tx_id FROM tx_log ORDER BY tx_id DESC LIMIT ?)
-                """,
-                (count,),
-            )
-            self._conn.commit()
-
     def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
         """
         Retrieves all facts associated with a specific session.
@@ -299,6 +281,25 @@ class SQLiteStorage(StorageBackend):
             c = self._conn.cursor()
             c.execute("SELECT data FROM facts WHERE json_extract(data, '$.session_id') = ?", (session_id,))
             return [json.loads(row["data"]) for row in c.fetchall()]
+
+    def delete_txs(self, tx_uuids: list[str]) -> None:
+        """
+        Removes a list of transactions from the transaction log whose session IDs match the provided
+        transaction IDs. If the provided list is empty, no transactions are processed.
+
+        Args:
+            tx_uuids (list[str]): A list of transaction UUIDs to be removed from the log.
+
+        Returns:
+            None
+        """
+        if not tx_uuids:
+            return
+        with self._lock:
+            c = self._conn.cursor()
+            placeholders = ",".join("?" for _ in tx_uuids)
+            c.execute(f"DELETE FROM tx_log WHERE uuid IN ({placeholders})", tuple(tx_uuids))  # nosec B608
+            self._conn.commit()
 
     def close(self) -> None:
         """
@@ -411,6 +412,10 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
                     data TEXT NOT NULL
                 )
                 """
+            )
+            await self._db.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_uuid ON tx_log(uuid)")
+            await self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tx_log_session ON tx_log(json_extract(data, '$.session_id'))"
             )
             await self._db.commit()
 
@@ -533,12 +538,13 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
             )
             await self._db.commit()
 
-    async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    async def get_tx_log(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves and returns a portion of the transaction log. The transaction log is accessed in
         reverse order of insertion, i.e., the most recently added item is the first in the result.
 
         Args:
+            session_id (str): The identifier of the session whose transactions should be retrieved.
             limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
             offset (int): The starting position relative to the most recent entry that determines where to begin
                 retrieving the log entries. Default is 0.
@@ -548,11 +554,13 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
                 contain details of individual transaction log entries.
         """
         async with self._lock:
-            async with self._db.execute(
-                "SELECT data FROM tx_log ORDER BY tx_id DESC LIMIT ? OFFSET ?", (limit, offset)
-            ) as cursor:
-                rows = await cursor.fetchall()
-                return [json.loads(row["data"]) for row in rows]
+            cursor = await self._db.execute(
+                "SELECT data FROM tx_log WHERE json_extract(data, '$.session_id') = ? ORDER BY tx_id DESC LIMIT ? OFFSET ?",
+                (session_id, limit, offset),
+            )
+
+            rows = await cursor.fetchall()
+            return [json.loads(row["data"]) for row in rows]
 
     async def delete_session(self, session_id: str) -> list[str]:
         """
@@ -576,29 +584,6 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
             await self._db.commit()
             return ids
 
-    async def remove_last_tx(self, count: int) -> None:
-        """
-        Asynchronously removes a specified number of the most recent transactions from the transaction
-        log. If the number of transactions to remove exceeds the current size of the
-        log, the entire log will be cleared.
-
-        Args:
-            count (int): The number of transactions to remove. Must be a positive integer.
-
-        Returns:
-            None
-        """
-        async with self._lock:
-            await self._db.execute(
-                """
-                DELETE
-                FROM tx_log
-                WHERE tx_id IN (SELECT tx_id FROM tx_log ORDER BY tx_id DESC LIMIT ?)
-                """,
-                (count,),
-            )
-            await self._db.commit()
-
     async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
         """
         Asynchronously retrieves all facts associated with a specific session.
@@ -619,6 +604,24 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [json.loads(row["data"]) for row in rows]
+
+    async def delete_txs(self, tx_uuids: list[str]) -> None:
+        """
+        Removes a list of transactions from the transaction log whose session IDs match the provided
+        transaction IDs. If the provided list is empty, no transactions are processed.
+
+        Args:
+            tx_uuids (list[str]): A list of transaction UUIDs to be removed from the log.
+
+        Returns:
+            None
+        """
+        if not tx_uuids:
+            return
+        async with self._lock:
+            placeholders = ",".join("?" for _ in tx_uuids)
+            await self._db.execute(f"DELETE FROM tx_log WHERE uuid IN ({placeholders})", tuple(tx_uuids))  # nosec B608
+            await self._db.commit()
 
     async def close(self) -> None:
         """

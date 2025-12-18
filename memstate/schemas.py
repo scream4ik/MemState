@@ -45,6 +45,7 @@ class TxEntry(BaseModel):
 
     Attributes:
         uuid (str): Unique identifier for the transaction entry.
+        session_id (str | None): Identifier of the session associated with the transaction.
         seq (int): Sequence number indicating the order of the transaction.
         ts (datetime): Timestamp indicating when the transaction occurred.
         op (Operation): Operation performed by the transaction.
@@ -56,6 +57,7 @@ class TxEntry(BaseModel):
     """
 
     uuid: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str | None
     seq: int
     ts: datetime
     op: Operation
