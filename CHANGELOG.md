@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-12-18
+
+### Major: Async Support & Beta Release
+This release marks the transition to **Beta**. The API is stable, and MemState is now ready for high-concurrency production workloads (FastAPI).
+
+*   **Full Async Support:** Added `AsyncMemoryStore` and async versions of all backends and hooks.
+*   **New Storage Backends:**
+    *   **PostgreSQL:** Native support using `SQLAlchemy` + `psycopg` with efficient JSONB querying.
+    *   **Redis:** Added `AsyncRedisStorage`.
+    *   **SQLite:** Added `AsyncSQLiteStorage` (via `aiosqlite`).
+*   **New Vector Integration:** Added **Qdrant** support (Sync & Async) with built-in FastEmbed generation.
+
+### Changed (Architectural Improvements)
+*   **Surgical Rollback:** Completely rewrote `rollback` logic to be safe in multi-user environments.
+    *   Added `session_id` isolation to transaction logs.
+    *   Rollback now removes specific transactions by UUID instead of truncating the log tail, preventing "Groundhog Day" bugs.
+*   **Safe Updates:** The `update()` method now enforces **Schema Re-validation**. Applying a patch that breaks the Pydantic schema will now raise `ValidationFailed` instead of corrupting the DB.
+*   **Session Optimization:** Added `get_session_facts` to backends to utilize DB indexes for session operations (O(1) vs O(N) previously).
+
+### Added
+*   **LangGraph Async:** Added `AsyncMemStateCheckpointer` for non-blocking graph persistence.
+*   **DX Improvements:** Added `session_id` argument to `query()` for easier context filtering.
+*   **Documentation:** Launched comprehensive documentation site.
+
+### Dependencies
+*   Added optional dependencies: `postgres`, `qdrant`, `sqlite-async`.
+
 ## [0.3.3] - 2025-12-12
 
 ### Added

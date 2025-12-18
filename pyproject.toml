@@ -1,6 +1,6 @@
 [project]
 name = "memstate"
-version = "0.3.3"
+version = "0.4.0"
 description = "Transactional Memory for AI Agents - Keep SQL and Vector DBs in sync with ACID-like guarantees"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,7 +26,7 @@ packages = [
     { include = "memstate" }
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
