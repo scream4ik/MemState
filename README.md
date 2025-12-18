@@ -1,4 +1,4 @@
-# MemState - Transactional Memory for AI Agents
+# MemState — Transactional Memory for AI Agents
 
 **Agents hallucinate because their memory drifts.**
 SQL says one thing, the Vector DB says another. MemState keeps them in sync, always.
@@ -7,22 +7,25 @@ SQL says one thing, the Vector DB says another. MemState keeps them in sync, alw
 > One unit. One commit. One rollback.
 
 [![PyPI version](https://img.shields.io/pypi/v/memstate.svg)](https://pypi.org/project/memstate/)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/memstate?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/memstate)
 [![Python versions](https://img.shields.io/pypi/pyversions/memstate.svg)](https://pypi.org/project/memstate/)
 [![License](https://img.shields.io/pypi/l/memstate.svg)](https://github.com/scream4ik/MemState/blob/main/LICENSE)
 [![Tests](https://github.com/scream4ik/MemState/actions/workflows/test.yml/badge.svg)](https://github.com/scream4ik/MemState/actions)
 
+---
+
+**Documentation**: <a href="https://scream4ik.github.io/MemState/" target="_blank">https://scream4ik.github.io/MemState/</a>
+
+**Source Code**: <a href="https://github.com/scream4ik/MemState" target="_blank">https://github.com/scream4ik/MemState</a>
+
+---
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/scream4ik/MemState/main/assets/docs/demo.gif" width="100%" />
-  <br>
-  <strong>Demo:</strong> Without MemState → memory gets inconsistent ❌ &nbsp;&nbsp;|&nbsp;&nbsp; With MemState → atomic, type-safe, rollbackable agent state ✅
-  <br>
-  <em>All demo scripts are available in the <code>examples/</code> folder for reproducibility.</em>
+  <img src="https://raw.githubusercontent.com/scream4ik/MemState/main/assets/docs/demo.gif" width="100%" alt="MemState Demo" />
 </p>
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
 
 ```bash
 pip install memstate[chromadb]
@@ -34,107 +37,52 @@ from memstate import MemoryStore, SQLiteStorage, HookError
 from memstate.integrations.chroma import ChromaSyncHook
 import chromadb
 
-# Define your Data Schema
+# 1. Define Data Schema
 class UserPref(BaseModel):
     content: str
     role: str
 
-# Storage
+# 2. Setup Storage (Local)
 sqlite = SQLiteStorage("agent_memory.db")
 chroma = chromadb.Client()
 
-# Hook: sync vectors atomically with SQL
+# 3. Initialize with Sync Hook
 mem = MemoryStore(sqlite)
 mem.add_hook(ChromaSyncHook(chroma, "agent_memory", text_field="content", metadata_fields=["role"]))
-mem.register_schema("preference", UserPref)  # Register type for validation
+mem.register_schema("preference", UserPref)
 
-# Atomic Commit (Type-Safe)
+# 4. Atomic Commit
 # Validates Pydantic model -> Writes SQL -> Upserts Vector
 try:
     mem.commit_model(model=UserPref(content="User prefers vegetarian", role="preference"))
 except HookError as e:
-    print("Commit failed, operation rolled back automatically:", e)
+    print("Commit failed, SQL rolled back automatically:", e)
 
-# Optional manual rollback of previous step
-# mem.rollback(1)  # uncomment if you want to undo the last saved fact
+# 5. Undo (if needed)
+# mem.rollback(1)
 ```
 
-That's it. Your agent memory is now transactional.
+👉 **[See full Documentation & Examples](https://scream4ik.github.io/MemState/)**
 
 ---
 
-## LangGraph integration
+## The Problem
 
-```python
-from memstate.integrations.langgraph import MemStateCheckpointer
+AI agents usually store memory in **two places**: SQL (structured facts) and Vector DB (semantic search).
 
-checkpointer = MemStateCheckpointer(memory=mem)
-app = workflow.compile(checkpointer=checkpointer)
-```
+These two stores **drift** easily. If a network request to the Vector DB fails, or the agent crashes mid-operation, you end up with **"Split-Brain" memory**:
+*   **SQL:** "User lives in London"
+*   **Vector DB:** "User lives in New York" (Stale embedding)
 
----
-
-## Why MemState exists
-
-### The Problem
-
-AI agents usually store memory in **two places**:
-
-* **SQL**: structured facts (preferences, task history)
-* **Vector DB**: semantic search (embeddings for RAG)
-
-These two stores **drift easily**. Even small failures create inconsistency:
-
-```python
-# Step 1: SQL write succeeds
-db.update("user_city", "London")
-
-# Step 2: Vector DB update fails
-vectors.upsert("User lives in London")  # ❌ failed
-
-# Final state:
-# SQL: London
-# Vectors: New York (stale embedding)
-```
-
-**Result:** ghost vectors, inconsistent state, unpredictable agent behavior.<br>
-Drift accumulates silently, agents continue retrieving outdated or mismatched memory.
-
----
-
-### Why this happens
-
-Real-world agent pipelines create drift **even with correct code**, because:
-
-* Vector DB upserts are **not atomic**
-* Retried writes can produce **duplicates or stale embeddings**
-* Async ingestion leads to **race conditions**
-* LLM outputs often contain **non-schema JSON**
-* Embedding model/version changes create **semantic mismatch**
-* SQL writes succeed while vector DB fails, partial updates persist
-
-These issues are **invisible until retrieval fails**, making debugging extremely difficult.
-MemState prevents this by enforcing **atomic memory operations**: if any part fails, the whole operation is rolled back.
-
----
+**Result:** The agent retrieves wrong context and hallucinates.
 
 ## The Solution
 
-MemState makes memory operations **atomic**:
+MemState acts as a **Transactional Layer**. It ensures that every memory operation is **Atomic**:
 
-```
-SQL write + Vector upsert
-→ succeed together or rollback together
-```
-
-## Key features
-
-* **Atomic commits**: SQL and Vector DB stay in sync
-* **Rollback**: undo N steps across SQL and vectors
-* **Type safety**: Pydantic validation prevents malformed JSON
-* **Append-only Fact Log**: full versioned history
-* **Crash-safe atomicity**: if a vector DB write fails, the entire memory operation (SQL + vector) is **rolled back**.
-  No partial writes, no ghost embeddings, no inconsistent checkpoints.
+*   **Atomic Commits:** SQL and Vector DB stay in sync. If one fails, both rollback.
+*   **Type Safety:** Pydantic validation prevents LLMs from corrupting your JSON schema.
+*   **Time Travel:** Undo N steps with `rollback(n)`. Useful for user corrections.
 
 ---
 
@@ -160,56 +108,31 @@ Full benchmark script: [`benchmarks/`](benchmarks/)
 
 ---
 
-## Ideal for
+## Ecosystem
 
-* Long-running agents
-* LangGraph workflows
-* RAG systems requiring strict DB <-> embedding consistency
-* Local-first / offline-first setups (SQLite/Redis + Chroma/Qdrant/FAISS)
-* Deterministic, debuggable agentic pipelines
+| Category | Supported |
+| :--- | :--- |
+| **Storage Backends** | SQLite, PostgreSQL (JSONB), Redis, In-Memory |
+| **Vector Hooks** | ChromaDB, Qdrant (more coming) |
+| **Frameworks** | **LangGraph** (Native Checkpointer), LangChain |
+| **Runtime** | Sync & **Async** (FastAPI ready) |
 
----
+### LangGraph Integration
 
-## Storage backends
+```python
+from memstate.integrations.langgraph import MemStateCheckpointer
 
-All backends participate in the same atomic commit cycle:
-
-* SQLite (JSON1)
-* Redis
-* In-memory
-* Custom backends via simple interface
-
-Vector sync hooks: ChromaDB (more coming)
-
----
-
-## When you don't need it
-
-* Your agent is fully stateless
-* You store everything in a single SQL table
-* You never update embeddings after creation
-
-If your pipelines depend on RAG or long-term state, consistency **is** required - most teams realize this only when debugging unpredictable retrieval.
+checkpointer = MemStateCheckpointer(memory=mem)
+app = workflow.compile(checkpointer=checkpointer)
+```
 
 ---
 
 ## Status
 
-**Early Access.**
-Production-ready for local agents and prototypes. API is stable (Semantic Versioning).
+**Beta.** The API is stable. Suitable for production agents that require high reliability.
 
-Community contributions welcome.
-
----
-
-## Install
-
-```bash
-pip install memstate[chromadb]
-```
-
-⭐ **[Star the repo](https://github.com/scream4ik/MemState)**
-🐛 **[Report issues](https://github.com/scream4ik/MemState/issues)**
+**[Read the Docs](https://scream4ik.github.io/MemState/)** | **[Report an Issue](https://github.com/scream4ik/MemState/issues)**
 
 ---
 
