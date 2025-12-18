@@ -7,6 +7,7 @@ SQL says one thing, the Vector DB says another. MemState keeps them in sync, alw
 > One unit. One commit. One rollback.
 
 [![PyPI version](https://img.shields.io/pypi/v/memstate.svg)](https://pypi.org/project/memstate/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/memstate?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/memstate)
 [![Python versions](https://img.shields.io/pypi/pyversions/memstate.svg)](https://pypi.org/project/memstate/)
 [![License](https://img.shields.io/pypi/l/memstate.svg)](https://github.com/scream4ik/MemState/blob/main/LICENSE)
 [![Tests](https://github.com/scream4ik/MemState/actions/workflows/test.yml/badge.svg)](https://github.com/scream4ik/MemState/actions)
@@ -25,7 +26,7 @@ SQL says one thing, the Vector DB says another. MemState keeps them in sync, alw
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ```bash
 pip install memstate[chromadb]
