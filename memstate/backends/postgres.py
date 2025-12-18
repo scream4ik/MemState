@@ -1,3 +1,7 @@
+"""
+Postgres storage backend implementation using SQLAlchemy.
+"""
+
 from typing import Any
 
 try:
@@ -25,6 +29,21 @@ from memstate.backends.base import AsyncStorageBackend, StorageBackend
 
 
 class PostgresStorage(StorageBackend):
+    """
+    Storage backend implementation using PostgreSQL and SQLAlchemy.
+
+    This class provides methods for interacting with a PostgreSQL database to store, retrieve,
+    and manage structured data and logs. It uses SQLAlchemy for ORM capabilities and supports
+    advanced querying and filtering using JSONB.
+
+    Attributes:
+        _engine (str | Engine): SQLAlchemy Engine or connection URL for interacting with the PostgreSQL database.
+        _metadata (MetaData): SQLAlchemy MetaData object for defining table schemas.
+        _table_prefix (str): Prefix for naming tables to avoid conflicts.
+        _facts_table (Table): SQLAlchemy Table for storing facts data with JSONB indexing.
+        _log_table (Table): SQLAlchemy Table for transaction logs.
+    """
+
     def __init__(self, engine_or_url: str | Engine, table_prefix: str = "memstate") -> None:
         if isinstance(engine_or_url, str):
             self._engine = create_engine(engine_or_url, future=True)
@@ -53,6 +72,19 @@ class PostgresStorage(StorageBackend):
             self._metadata.create_all(conn)
 
     def load(self, id: str) -> dict[str, Any] | None:
+        """
+        Loads an item from the store based on the provided identifier.
+
+        This method retrieves the item associated with the given `id`
+        from the internal store. If no item is found for the provided
+        identifier, it returns ``None``.
+
+        Args:
+            id (str): The unique identifier of the item to load.
+
+        Returns:
+            The item retrieved from the store or ``None`` if the identifier does not exist in the store.
+        """
         with self._engine.connect() as conn:
             stmt = select(self._facts_table.c.doc).where(self._facts_table.c.id == id)
             row = conn.execute(stmt).first()
@@ -61,6 +93,17 @@ class PostgresStorage(StorageBackend):
             return None
 
     def save(self, fact_data: dict[str, Any]) -> None:
+        """
+        Saves the given fact data into the internal store. The save operation
+        and ensures data consistency by utilizing a lock mechanism.
+
+        Args:
+            fact_data (dict[str, Any]): A dictionary containing fact data to be stored. The dictionary
+                must include an "id" key with a corresponding value as a unique identifier.
+
+        Returns:
+            None
+        """
         # Postgres Native Upsert (INSERT ... ON CONFLICT DO UPDATE)
         stmt = pg_insert(self._facts_table).values(id=fact_data["id"], doc=fact_data)
         upsert_stmt = stmt.on_conflict_do_update(
@@ -71,11 +114,37 @@ class PostgresStorage(StorageBackend):
             conn.execute(upsert_stmt)
 
     def delete(self, id: str) -> None:
+        """
+        Removes an entry from the store based on the provided identifier. If the identifier
+        does not exist, the method performs no action and completes silently.
+
+        Args:
+            id (str): The identifier of the entry to be removed from the store. Must be a string.
+
+        Returns:
+            None
+        """
         with self._engine.begin() as conn:
             conn.execute(delete(self._facts_table).where(self._facts_table.c.id == id))
 
     def query(self, type_filter: str | None = None, json_filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """
+        Query data from the internal store based on specified filters.
 
+        This method iterates through the internal store and filters the data based on
+        the provided `type_filter` and `json_filters`. The results will include
+        only the entries that match all specified filtering criteria.
+
+        Args:
+            type_filter (str | None): Optional filter to include only items with a matching "type" field.
+                If None, this filter is ignored.
+            json_filters (dict[str, Any] | None): A dictionary where keys represent the path within the JSON
+                data structure, and values represent the required values for inclusion.
+                If None, this filter is ignored.
+
+        Returns:
+            A list of dictionaries containing the data entries from the internal store that match the specified filters.
+        """
         stmt = select(self._facts_table.c.doc)
 
         # 1. Filter by type (fact)
@@ -109,16 +178,50 @@ class PostgresStorage(StorageBackend):
             return [r[0] for r in rows]
 
     def append_tx(self, tx_data: dict[str, Any]) -> None:
+        """
+        Appends a transaction record to the transaction log.
+
+        Args:
+            tx_data (dict[str, Any]): A dictionary containing transaction data to be appended.
+
+        Returns:
+            None
+        """
         with self._engine.begin() as conn:
             conn.execute(self._log_table.insert().values(entry=tx_data))
 
     def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """
+        Retrieves and returns a portion of the transaction log. The transaction log is accessed in
+        reverse order of insertion, i.e., the most recently added item is the first in the result.
+
+        Args:
+            limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
+            offset (int): The starting position relative to the most recent entry that determines where to begin
+                retrieving the log entries. Default is 0.
+
+        Returns:
+            A list of dictionaries representing the requested subset of the transaction log. The dictionaries
+                contain details of individual transaction log entries.
+        """
         stmt = select(self._log_table.c.entry).order_by(desc(self._log_table.c.seq)).limit(limit).offset(offset)
         with self._engine.connect() as conn:
             rows = conn.execute(stmt).all()
             return [r[0] for r in rows]
 
     def delete_session(self, session_id: str) -> list[str]:
+        """
+        Deletes all facts associated with a given session ID from the store.
+
+        This method identifies all fact records in the store that are linked to the specified
+        session ID, removes them, and returns a list of fact identifiers that were deleted.
+
+        Args:
+            session_id (str): The identifier of the session whose associated facts should be removed.
+
+        Returns:
+            A list of fact ids identifiers that were deleted from the store.
+        """
         del_stmt = (
             delete(self._facts_table)
             .where(self._facts_table.c.doc["session_id"].astext == session_id)
@@ -130,6 +233,17 @@ class PostgresStorage(StorageBackend):
             return [r[0] for r in result.all()]
 
     def remove_last_tx(self, count: int) -> None:
+        """
+        Removes a specified number of the most recent transactions from the transaction
+        log. If the number of transactions to remove exceeds the current size of the
+        log, the entire log will be cleared.
+
+        Args:
+            count (int): The number of transactions to remove. Must be a positive integer.
+
+        Returns:
+            None
+        """
         if count <= 0:
             return
 
@@ -141,19 +255,59 @@ class PostgresStorage(StorageBackend):
             conn.execute(stmt)
 
     def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        """
+        Retrieves all facts associated with a specific session.
+
+        This method filters and returns a list of all facts from the internal store
+        that match the provided session ID. Each fact is represented as a dictionary,
+        and the list may be empty if no facts match the provided session ID.
+
+        Args:
+            session_id (str): The identifier of the session whose facts are to be retrieved.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a fact related to the specified session.
+        """
         stmt = select(self._facts_table.c.doc).where(self._facts_table.c.doc["session_id"].astext == session_id)
         with self._engine.connect() as conn:
             rows = conn.execute(stmt).all()
             return [r[0] for r in rows]
 
     def close(self) -> None:
+        """
+        Closes the current open resource or connection.
+
+        This method is responsible for cleanup or finalization tasks.
+        It ensures that resources, such as file handles or network connections,
+        are properly released or closed. Once called, the resource cannot
+        be used again unless it is reopened.
+
+        Returns:
+            None
+        """
         self._engine.dispose()
 
 
 class AsyncPostgresStorage(AsyncStorageBackend):
     """
-    store = AsyncPostgresStorage(...)
-    await store.create_tables()
+    Async storage backend implementation using PostgreSQL and SQLAlchemy.
+
+    This class provides methods for interacting with a PostgreSQL database to store, retrieve,
+    and manage structured data and logs. It uses SQLAlchemy for ORM capabilities and supports
+    advanced querying and filtering using JSONB.
+
+    Example:
+        ```python
+        store = AsyncPostgresStorage(...)
+        await store.create_tables()
+        ```
+
+    Attributes
+        _engine (str | Engine): SQLAlchemy Engine or connection URL for interacting with the PostgreSQL database.
+        _metadata (MetaData): SQLAlchemy MetaData object for defining table schemas.
+        _table_prefix (str): Prefix for naming tables to avoid conflicts.
+        _facts_table (Table): SQLAlchemy Table for storing facts data with JSONB indexing.
+        _log_table (Table): SQLAlchemy Table for transaction logs.
     """
 
     def __init__(self, engine_or_url: str | AsyncEngine, table_prefix: str = "memstate") -> None:
@@ -180,11 +334,29 @@ class AsyncPostgresStorage(AsyncStorageBackend):
         )
 
     async def create_tables(self) -> None:
-        """Helper to create tables asynchronously (uses run_sync)."""
+        """
+        Helper to create tables asynchronously (uses run_sync).
+
+        Returns:
+            None
+        """
         async with self._engine.begin() as conn:
             await conn.run_sync(self._metadata.create_all)
 
     async def load(self, id: str) -> dict[str, Any] | None:
+        """
+        Asynchronously loads an item from the store based on the provided identifier.
+
+        This method retrieves the item associated with the given `id`
+        from the internal store. If no item is found for the provided
+        identifier, it returns ``None``.
+
+        Args:
+            id (str): The unique identifier of the item to load.
+
+        Returns:
+            The item retrieved from the store or ``None`` if the identifier does not exist in the store.
+        """
         async with self._engine.connect() as conn:
             stmt = select(self._facts_table.c.doc).where(self._facts_table.c.id == id)
             result = await conn.execute(stmt)
@@ -194,18 +366,56 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             return None
 
     async def save(self, fact_data: dict[str, Any]) -> None:
+        """
+        Asynchronously saves the given fact data into the internal store. The save operation
+        and ensures data consistency by utilizing a lock mechanism.
+
+        Args:
+            fact_data (dict[str, Any]): A dictionary containing fact data to be stored. The dictionary
+                must include an "id" key with a corresponding value as a unique identifier.
+
+        Returns:
+            None
+        """
         stmt = pg_insert(self._facts_table).values(id=fact_data["id"], doc=fact_data)
         upsert_stmt = stmt.on_conflict_do_update(index_elements=["id"], set_={"doc": stmt.excluded.doc})
         async with self._engine.begin() as conn:
             await conn.execute(upsert_stmt)
 
     async def delete(self, id: str) -> None:
+        """
+        Asynchronously removes an entry from the store based on the provided identifier. If the identifier
+        does not exist, the method performs no action and completes silently.
+
+        Args:
+            id (str): The identifier of the entry to be removed from the store. Must be a string.
+
+        Returns:
+            None
+        """
         async with self._engine.begin() as conn:
             await conn.execute(delete(self._facts_table).where(self._facts_table.c.id == id))
 
     async def query(
         self, type_filter: str | None = None, json_filters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
+        """
+        Asynchronously query data from the internal store based on specified filters.
+
+        This method iterates through the internal store and filters the data based on
+        the provided `type_filter` and `json_filters`. The results will include
+        only the entries that match all specified filtering criteria.
+
+        Args:
+            type_filter (str | None): Optional filter to include only items with a matching "type" field.
+                If None, this filter is ignored.
+            json_filters (dict[str, Any] | None): A dictionary where keys represent the path within the JSON
+                data structure, and values represent the required values for inclusion.
+                If None, this filter is ignored.
+
+        Returns:
+            A list of dictionaries containing the data entries from the internal store that match the specified filters.
+        """
         stmt = select(self._facts_table.c.doc)
 
         if type_filter:
@@ -224,16 +434,50 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             return [r[0] for r in result.all()]
 
     async def append_tx(self, tx_data: dict[str, Any]) -> None:
+        """
+        Asynchronously appends a transaction record to the transaction log.
+
+        Args:
+            tx_data (dict[str, Any]): A dictionary containing transaction data to be appended.
+
+        Returns:
+            None
+        """
         async with self._engine.begin() as conn:
             await conn.execute(self._log_table.insert().values(entry=tx_data))
 
     async def get_tx_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """
+        Asynchronously retrieves and returns a portion of the transaction log. The transaction log is accessed in
+        reverse order of insertion, i.e., the most recently added item is the first in the result.
+
+        Args:
+            limit (int): The maximum number of transaction log entries to be retrieved. Default is 100.
+            offset (int): The starting position relative to the most recent entry that determines where to begin
+                retrieving the log entries. Default is 0.
+
+        Returns:
+            A list of dictionaries representing the requested subset of the transaction log. The dictionaries
+                contain details of individual transaction log entries.
+        """
         stmt = select(self._log_table.c.entry).order_by(desc(self._log_table.c.seq)).limit(limit).offset(offset)
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             return [r[0] for r in result.all()]
 
     async def delete_session(self, session_id: str) -> list[str]:
+        """
+        Asynchronously deletes all facts associated with a given session ID from the store.
+
+        This method identifies all fact records in the store that are linked to the specified
+        session ID, removes them, and returns a list of fact identifiers that were deleted.
+
+        Args:
+            session_id (str): The identifier of the session whose associated facts should be removed.
+
+        Returns:
+            A list of fact ids identifiers that were deleted from the store.
+        """
         del_stmt = (
             delete(self._facts_table)
             .where(self._facts_table.c.doc["session_id"].astext == session_id)
@@ -244,6 +488,17 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             return [r[0] for r in result.all()]
 
     async def remove_last_tx(self, count: int) -> None:
+        """
+        Asynchronously removes a specified number of the most recent transactions from the transaction
+        log. If the number of transactions to remove exceeds the current size of the
+        log, the entire log will be cleared.
+
+        Args:
+            count (int): The number of transactions to remove. Must be a positive integer.
+
+        Returns:
+            None
+        """
         if count <= 0:
             return
 
@@ -255,10 +510,34 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             await conn.execute(stmt)
 
     async def get_session_facts(self, session_id: str) -> list[dict[str, Any]]:
+        """
+        Asynchronously retrieves all facts associated with a specific session.
+
+        This method filters and returns a list of all facts from the internal store
+        that match the provided session ID. Each fact is represented as a dictionary,
+        and the list may be empty if no facts match the provided session ID.
+
+        Args:
+            session_id (str): The identifier of the session whose facts are to be retrieved.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a fact related to the specified session.
+        """
         stmt = select(self._facts_table.c.doc).where(self._facts_table.c.doc["session_id"].astext == session_id)
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             return [r[0] for r in result.all()]
 
     async def close(self) -> None:
+        """
+        Asynchronously closes the current open resource or connection.
+
+        This method is responsible for cleanup or finalization tasks.
+        It ensures that resources, such as file handles or network connections,
+        are properly released or closed. Once called, the resource cannot
+        be used again unless it is reopened.
+
+        Returns:
+            None
+        """
         await self._engine.dispose()

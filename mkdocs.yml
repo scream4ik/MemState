@@ -1,0 +1,98 @@
+site_name: MemState
+site_url: https://scream4ik.github.io/memstate
+site_description: Transactional Memory for AI Agents - Keep SQL and Vector DBs in sync with ACID-like guarantees
+
+repo_name: scream4ik/MemState
+repo_url: https://github.com/scream4ik/MemState
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tooltips
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: lime
+      toggle:
+        icon: material/weather-night
+        name: Switch to system preference
+
+nav:
+  - Home:
+      - Home: index.md
+      - Quickstart: quickstart.md
+  - Documentation:
+      - Core concept: documentation/index.md
+      - Backends: documentation/backends.md
+      - Integrations: documentation/integrations.md
+      - Exceptions: documentation/exceptions.md
+  - Examples:
+      - Overview: examples/index.md
+      - LangGraph: examples/langgraph.md
+      - RAG: examples/rag.md
+      - Agent: examples/agent.md
+  - API Reference:
+      - Overview: api/index.md
+      - MemState: api/memstate.md
+      - Backends: api/backends.md
+      - Integrations: api/integrations.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - abbr
+  - attr_list
+  - pymdownx.snippets:
+      base_path: .
+  - pymdownx.highlight:
+      pygments_lang_class: true
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - autorefs:
+      resolve_closest: true
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [memstate]
+          options:
+            backlinks: tree
+            docstring_options:
+              ignore_init_summary: true
+            docstring_section_style: list
+            filters: ["!^_"]
+            heading_level: 1
+            inherited_members: true
+            merge_init_into_class: true
+            parameter_headings: true
+            separate_signature: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature_annotations: true
+            show_source: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            signature_crossrefs: true
+            summary: true

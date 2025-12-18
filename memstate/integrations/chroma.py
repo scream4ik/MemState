@@ -1,7 +1,12 @@
+"""
+Chomadb integration.
+"""
+
 from typing import Any, Callable
 
 from memstate.constants import Operation
 from memstate.schemas import Fact
+from memstate.types import AsyncMemoryHook, MemoryHook
 
 try:
     from chromadb import EmbeddingFunction
@@ -14,7 +19,31 @@ TextFormatter = Callable[[dict[str, Any]], str]
 MetadataFormatter = Callable[[dict[str, Any]], dict[str, Any]]
 
 
-class ChromaSyncHook:
+class ChromaSyncHook(MemoryHook):
+    """
+    Handles synchronization of memory data with Chroma collections by integrating
+    fact operations and data transformations.
+
+    This class is responsible for managing connections to a Chroma collection via
+    a Chroma client, extracting and formatting text and metadata as per the provided
+    configuration, and performing operations like deletion or upserting of facts
+    based on various triggers or operations. It also provides flexibility in defining
+    target data types, metadata extraction, text processing, and overall data
+    synchronization rules.
+
+    Attributes:
+        client (ClientAPI): The Chroma client instance used for collection access and management.
+        collection_name (str): The name of the Chroma collection to be synchronized.
+        embedding_fn (EmbeddingFunction | None): Optional function for generating embeddings from text.
+        target_types (set[str]): A set of fact types allowed for synchronization. If empty, all types are allowed.
+        text_field (str | None): Field name of text in fact.
+        text_formatter (TextFormatter | None): Optional custom function for extracting text. Overrides `text_field` if provided.
+        metadata_fields (list[str]): The list of metadata fields to extract from the fact
+            payload. Used if no metadata formatter is provided.
+        metadata_formatter (MetadataFormatter | None): Optional custom function for extracting metadata.
+            Overrides `metadata_fields` if provided.
+    """
+
     def __init__(
         self,
         client: ClientAPI,
@@ -26,16 +55,6 @@ class ChromaSyncHook:
         metadata_fields: list[str] | None = None,
         metadata_formatter: MetadataFormatter | None = None,
     ):
-        """
-        :param client: Initialized Chroma Client.
-        :param collection_name: collection name.
-        :param embedding_fn: Function (text -> vector). If None, Chroma uses default.
-        :param target_types: Types of facts for synchronization (to avoid garbage).
-        :param text_field: Field name of text in fact.
-        :param text_formatter: Function.
-        :param metadata_fields: Fields of metadata in fact.
-        :param metadata_formatter: Function.
-        """
         self.client = client
         self.collection = client.get_or_create_collection(
             name=collection_name,
@@ -54,6 +73,21 @@ class ChromaSyncHook:
         self.metadata_formatter = metadata_formatter
 
     def _get_metadata(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Generates metadata from the input data using a formatter or a predefined set of fields.
+
+        If a metadata formatter is defined, it will process the input data.
+        If no formatter is defined, it will extract specific fields from the input
+        data and format their values. Only string, integer, float, and boolean
+        types are preserved; other types will be converted to strings.
+
+        Args:
+            data (dict[str, Any]): A dictionary containing the input data to retrieve metadata from.
+
+        Returns:
+            A dictionary containing the generated metadata. This dictionary can
+                be empty if no metadata fields or formatter are provided.
+        """
         if self.metadata_formatter is not None:
             return self.metadata_formatter(data)
 
@@ -70,7 +104,19 @@ class ChromaSyncHook:
 
         return {}
 
-    def __call__(self, op: Operation, fact_id: str, data: Fact | None) -> None:
+    def __call__(self, op: Operation, fact_id: str, fact: Fact | None) -> None:
+        """
+        Executes the instance as a callable. The method processes an operation with an
+        associated fact ID and optional fact data.
+
+        Args:
+            op (Operation): Operation to be processed.
+            fact_id (str): Identifier associated with the fact.
+            fact (Fact | None): Optional fact data related to the operation.
+
+        Returns:
+            None
+        """
         if op == Operation.DELETE:
             self.collection.delete(ids=[fact_id])
             return
@@ -78,38 +124,53 @@ class ChromaSyncHook:
         if op == Operation.DISCARD_SESSION:
             return
 
-        if not data or (self.target_types and data.type not in self.target_types):
+        if not fact or (self.target_types and fact.type not in self.target_types):
             return
 
-        text = self._extract_text(data.payload)
+        text = self._extract_text(fact.payload)
 
         if not text.strip():
             return
 
         if op in (Operation.COMMIT, Operation.UPDATE, Operation.COMMIT_EPHEMERAL, Operation.PROMOTE):
-            meta = {"type": data.type, "source": data.source or "", "ts": str(data.ts)}
-            metadata = self._get_metadata(data=data.payload)
+            meta = {"type": fact.type, "source": fact.source or "", "ts": str(fact.ts)}
+            metadata = self._get_metadata(data=fact.payload)
             meta.update(metadata)
 
             self.collection.upsert(ids=[fact_id], documents=[text], metadatas=[meta])
 
 
-class AsyncChromaSyncHook:
+class AsyncChromaSyncHook(AsyncMemoryHook):
     """
-    async def main():
-        # 1. Async Chroma Client
+    Handles synchronization of memory data with Chroma collections by integrating
+    fact operations and data transformations.
+
+    This class is responsible for managing connections to a Chroma collection via
+    AsyncClientAPI, extracting and formatting text and metadata as per the provided
+    configuration, and performing operations like deletion or upserting of facts
+    based on various triggers or operations. It also provides flexibility in defining
+    target data types, metadata extraction, text processing, and overall data
+    synchronization rules.
+
+    Example:
+        ```python
         client = await chromadb.AsyncHttpClient()
-
-        # 2. Async Hook
         hook = AsyncChromaSyncHook(client, "my_collection", text_field="content")
-
-        # 3. Async Store
         store = AsyncMemoryStore(AsyncInMemoryStorage(), hooks=[hook])
-
-        # 4. Async Commit
         await store.commit_model(...)
+        ```
 
-    asyncio.run(main())
+    Attributes:
+        client (AsyncClientAPI): The Chroma client instance used for collection access and management.
+        collection_name (str): The name of the Chroma collection to be synchronized.
+        embedding_fn (EmbeddingFunction | None): Optional function for generating embeddings from text.
+        target_types (set[str]): A set of fact types allowed for synchronization. If empty, all types are allowed.
+        text_field (str | None): Field name of text in fact.
+        text_formatter (TextFormatter | None): Optional custom function for extracting text. Overrides `text_field` if provided.
+        metadata_fields (list[str]): The list of metadata fields to extract from the fact
+            payload. Used if no metadata formatter is provided.
+        metadata_formatter (MetadataFormatter | None): Optional custom function for extracting metadata.
+            Overrides `metadata_fields` if provided.
     """
 
     def __init__(
@@ -142,7 +203,12 @@ class AsyncChromaSyncHook:
         self.metadata_formatter = metadata_formatter
 
     async def _get_collection(self) -> AsyncCollection:
-        """Lazy loader for the async collection."""
+        """
+        Lazy loader for the async collection.
+
+        Returns:
+            The async collection.
+        """
         if self._collection is None:
             self._collection = await self.client.get_or_create_collection(
                 name=self.collection_name,
@@ -151,6 +217,21 @@ class AsyncChromaSyncHook:
         return self._collection
 
     def _get_metadata(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Generates metadata from the input data using a formatter or a predefined set of fields.
+
+        If a metadata formatter is defined, it will process the input data.
+        If no formatter is defined, it will extract specific fields from the input
+        data and format their values. Only string, integer, float, and boolean
+        types are preserved; other types will be converted to strings.
+
+        Args:
+            data (dict[str, Any]): A dictionary containing the input data to retrieve metadata from.
+
+        Returns:
+            A dictionary containing the generated metadata. This dictionary can
+                be empty if no metadata fields or formatter are provided.
+        """
         if self.metadata_formatter is not None:
             return self.metadata_formatter(data)
 
@@ -166,7 +247,19 @@ class AsyncChromaSyncHook:
             return meta
         return {}
 
-    async def __call__(self, op: Operation, fact_id: str, data: Fact | None) -> None:
+    async def __call__(self, op: Operation, fact_id: str, fact: Fact | None) -> None:
+        """
+        Asynchronously executes the instance as a callable. The method processes an operation with an
+        associated fact ID and optional fact data.
+
+        Args:
+            op (Operation): Operation to be processed.
+            fact_id (str): Identifier associated with the fact.
+            fact (Fact | None): Optional fact data related to the operation.
+
+        Returns:
+            None
+        """
         collection = await self._get_collection()
 
         if op == Operation.DELETE:
@@ -176,17 +269,17 @@ class AsyncChromaSyncHook:
         if op == Operation.DISCARD_SESSION:
             return
 
-        if not data or (self.target_types and data.type not in self.target_types):
+        if not fact or (self.target_types and fact.type not in self.target_types):
             return
 
-        text = self._extract_text(data.payload)
+        text = self._extract_text(fact.payload)
 
         if not text.strip():
             return
 
         if op in (Operation.COMMIT, Operation.UPDATE, Operation.COMMIT_EPHEMERAL, Operation.PROMOTE):
-            meta = {"type": data.type, "source": data.source or "", "ts": str(data.ts)}
-            metadata = self._get_metadata(data=data.payload)
+            meta = {"type": fact.type, "source": fact.source or "", "ts": str(fact.ts)}
+            metadata = self._get_metadata(data=fact.payload)
             meta.update(metadata)
 
             await collection.upsert(ids=[fact_id], documents=[text], metadatas=[meta])

@@ -1,3 +1,7 @@
+"""
+LangGraph Checkpointer.
+"""
+
 from typing import Any, AsyncIterator, Iterator, Sequence
 
 try:
@@ -18,6 +22,22 @@ from memstate.storage import AsyncMemoryStore, MemoryStore
 
 
 class MemStateCheckpointer(BaseCheckpointSaver[str]):
+    """
+    Manages the storage, retrieval, and deletion of checkpoint data in memory.
+
+    The MemStateCheckpointer class enables storing checkpoints using an in-memory
+    storage system, facilitating workflows that require checkpointing and versioning
+    mechanisms. It interacts with a memory store to persist checkpoint data and
+    associated metadata, supporting use cases that require checkpointer objects
+    functioning as temporary memory storage.
+
+    Attributes:
+        memory (MemoryStore): Reference to the memory store used for storage operations.
+        serde (SerializerProtocol): Serializer for serializing checkpoint data.
+        fact_type (str): String identifier for checkpoint facts within the memory store.
+        write_type (str): String identifier for write facts within the memory store.
+    """
+
     def __init__(self, memory: MemoryStore, serde: SerializerProtocol | None = None) -> None:
         super().__init__(serde=serde or JsonPlusSerializer())
         self.memory = memory
@@ -31,6 +51,28 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
         metadata: CheckpointMetadata,
         new_versions: dict[str, Any],
     ) -> RunnableConfig:
+        """
+        Updates the state of a process by committing checkpoint metadata into memory
+        and returning an updated configuration object.
+
+        This method handles storing the provided checkpoint and its associated metadata
+        to facilitate process tracking. It interacts with the memory instance to ensure
+        the relevant details are committed within the appropriate session. After updating
+        memory, it returns a modified configuration containing the updated thread
+        parameters.
+
+        Args:
+            config (RunnableConfig): The configuration object for the runnable, which must include a `thread_id` under the `configurable` key.
+            checkpoint (Checkpoint): The checkpoint object containing state information to be stored in memory.
+            metadata (CheckpointMetadata): Additional metadata corresponding to the checkpoint, providing
+                supplementary details about the stored state.
+            new_versions (dict[str, Any]): A mapping of version keys to their new corresponding
+                values, used to track changes in versions during the execution process.
+
+        Returns:
+            A modified configuration object reflecting the updated thread
+                parameters after committing the provided checkpoint to memory.
+        """
         thread_id = config["configurable"]["thread_id"]
 
         payload = {
@@ -58,6 +100,23 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
         task_id: str,
         task_path: str = "",
     ) -> None:
+        """
+        Executes the operation to store a sequence of writes by committing them as facts into memory
+        with associated task and thread information. Each write entry in the sequence is processed
+        with a specific channel, value, and index to generate a payload, which is then committed.
+
+        Args:
+            config (RunnableConfig): The configuration object implementing the `RunnableConfig` interface. It must
+                contain a "configurable" dictionary with a thread ID linked under the key "thread_id".
+            writes (Sequence[tuple[str, Any]]): A sequence of tuples where each tuple contains a string representing the channel
+                and an associated value of type `Any` to be committed.
+            task_id (str): A string representing the unique identifier for the task that groups all the writes.
+            task_path (str): (optional) A string that represents the path or hierarchy associated with
+                the task. Defaults to an empty string if not provided.
+
+        Returns:
+            None
+        """
         thread_id = config["configurable"]["thread_id"]
 
         for idx, (channel, value) in enumerate(writes):
@@ -75,6 +134,21 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
             )
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        """
+        Gets a checkpoint tuple based on the provided configuration.
+
+        This method queries memory to retrieve facts associated with a specific thread ID
+        from the configuration. Depending on whether a thread timestamp is provided,
+        it selects the most recent fact or the one matching the given timestamp.
+        Finally, it reconstructs the checkpoint tuple based on the retrieved fact's payload.
+
+        Args:
+            config (RunnableConfig): Configuration object containing thread-specific retrieval
+                data, including `thread_id` and optionally `thread_ts`.
+
+        Returns:
+            A `CheckpointTuple` containing the retrieved checkpoint data if a fact is found, otherwise `None`.
+        """
         thread_id = config["configurable"]["thread_id"]
         thread_ts = config["configurable"].get("thread_ts")
 
@@ -117,6 +191,23 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
         before: RunnableConfig | None = None,
         limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
+        """
+        List and yield checkpoint tuples based on given configuration and filters.
+
+        This function retrieves fact data stored in memory, optionally applies
+        filters based on configuration or other specified parameters, and yields
+        checkpoint tuples sorted by timestamp. The functionality includes support
+        for limiting the number of facts processed.
+
+        Args:
+            config (RunnableConfig | None): Configuration information for filtering facts. Optional.
+            filter (dict[str, Any] | None): Additional criteria for filtering facts based on key-value pairs. Optional.
+            before (RunnableConfig | None): Configuration object to apply filter before a certain criterion. Optional.
+            limit (int | None): Maximum number of facts to process and yield. Optional.
+
+        Returns:
+            An iterator over checkpoint tuples derived from the filtered facts.
+        """
 
         json_filters = {}
 
@@ -147,13 +238,37 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
             )
 
     def delete_thread(self, thread_id: str) -> None:
+        """
+        Deletes a specific thread from memory by its identifier.
+
+        This method removes the session associated with the given thread ID
+        from the memory, ensuring that it is no longer retained or accessed
+        in the system.
+
+        Args:
+            thread_id (str): The unique identifier of the thread to be deleted.
+
+        Returns:
+            This method does not return any value.
+        """
         self.memory.discard_session(thread_id)
 
 
 class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
     """
-    Asynchronous Checkpointer for LangGraph.
-    Requires an AsyncMemoryStore.
+    Async manages the storage, retrieval, and deletion of checkpoint data in memory.
+
+    The AsyncMemStateCheckpointer class enables storing checkpoints using an in-memory
+    storage system, facilitating workflows that require checkpointing and versioning
+    mechanisms. It interacts with a memory store to persist checkpoint data and
+    associated metadata, supporting use cases that require checkpointer objects
+    functioning as temporary memory storage.
+
+    Attributes:
+        memory (AsyncMemoryStore): Reference to the memory store used for storage operations.
+        serde (SerializerProtocol): Serializer for serializing checkpoint data.
+        fact_type (str): String identifier for checkpoint facts within the memory store.
+        write_type (str): String identifier for write facts within the memory store.
     """
 
     def __init__(self, memory: AsyncMemoryStore, serde: SerializerProtocol | None = None) -> None:
@@ -169,6 +284,28 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
         metadata: CheckpointMetadata,
         new_versions: dict[str, Any],
     ) -> RunnableConfig:
+        """
+        Asynchronously updates the state of a process by committing checkpoint metadata into memory
+        and returning an updated configuration object.
+
+        This method handles storing the provided checkpoint and its associated metadata
+        to facilitate process tracking. It interacts with the memory instance to ensure
+        the relevant details are committed within the appropriate session. After updating
+        memory, it returns a modified configuration containing the updated thread
+        parameters.
+
+        Args:
+            config (RunnableConfig): The configuration object for the runnable, which must include a `thread_id` under the `configurable` key.
+            checkpoint (Checkpoint): The checkpoint object containing state information to be stored in memory.
+            metadata (CheckpointMetadata): Additional metadata corresponding to the checkpoint, providing
+                supplementary details about the stored state.
+            new_versions (dict[str, Any]): A mapping of version keys to their new corresponding
+                values, used to track changes in versions during the execution process.
+
+        Returns:
+            A modified configuration object reflecting the updated thread
+                parameters after committing the provided checkpoint to memory.
+        """
         thread_id = config["configurable"]["thread_id"]
 
         payload = {
@@ -197,6 +334,23 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
         task_id: str,
         task_path: str = "",
     ) -> None:
+        """
+        Asynchronously executes the operation to store a sequence of writes by committing them as facts into memory
+        with associated task and thread information. Each write entry in the sequence is processed
+        with a specific channel, value, and index to generate a payload, which is then committed.
+
+        Args:
+            config (RunnableConfig): The configuration object implementing the `RunnableConfig` interface. It must
+                contain a "configurable" dictionary with a thread ID linked under the key "thread_id".
+            writes (Sequence[tuple[str, Any]]): A sequence of tuples where each tuple contains a string representing the channel
+                and an associated value of type `Any` to be committed.
+            task_id (str): A string representing the unique identifier for the task that groups all the writes.
+            task_path (str): (optional) A string that represents the path or hierarchy associated with
+                the task. Defaults to an empty string if not provided.
+
+        Returns:
+            None
+        """
         thread_id = config["configurable"]["thread_id"]
 
         for idx, (channel, value) in enumerate(writes):
@@ -215,6 +369,21 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
             )
 
     async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        """
+        Asynchronously gets a checkpoint tuple based on the provided configuration.
+
+        This method queries memory to retrieve facts associated with a specific thread ID
+        from the configuration. Depending on whether a thread timestamp is provided,
+        it selects the most recent fact or the one matching the given timestamp.
+        Finally, it reconstructs the checkpoint tuple based on the retrieved fact's payload.
+
+        Args:
+            config (RunnableConfig): Configuration object containing thread-specific retrieval
+                data, including `thread_id` and optionally `thread_ts`.
+
+        Returns:
+            A `CheckpointTuple` containing the retrieved checkpoint data if a fact is found, otherwise `None`.
+        """
         thread_id = config["configurable"]["thread_id"]
         thread_ts = config["configurable"].get("thread_ts")
 
@@ -257,6 +426,23 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
         before: RunnableConfig | None = None,
         limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
+        """
+        Asynchronously list and yield checkpoint tuples based on given configuration and filters.
+
+        This function retrieves fact data stored in memory, optionally applies
+        filters based on configuration or other specified parameters, and yields
+        checkpoint tuples sorted by timestamp. The functionality includes support
+        for limiting the number of facts processed.
+
+        Args:
+            config (RunnableConfig | None): Configuration information for filtering facts. Optional.
+            filter (dict[str, Any] | None): Additional criteria for filtering facts based on key-value pairs. Optional.
+            before (RunnableConfig | None): Configuration object to apply filter before a certain criterion. Optional.
+            limit (int | None): Maximum number of facts to process and yield. Optional.
+
+        Returns:
+            An iterator over checkpoint tuples derived from the filtered facts.
+        """
 
         json_filters = {}
         if config and "configurable" in config:
@@ -289,5 +475,17 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
             )
 
     async def adelete_thread(self, thread_id: str) -> None:
-        """Async cleanup of the thread state."""
+        """
+        Asynchronously deletes a specific thread from memory by its identifier.
+
+        This method removes the session associated with the given thread ID
+        from the memory, ensuring that it is no longer retained or accessed
+        in the system.
+
+        Args:
+            thread_id (str): The unique identifier of the thread to be deleted.
+
+        Returns:
+            This method does not return any value.
+        """
         await self.memory.discard_session(thread_id)

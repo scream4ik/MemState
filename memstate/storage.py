@@ -3,7 +3,7 @@ import copy
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
 
@@ -11,24 +11,57 @@ from memstate.backends.base import AsyncStorageBackend, StorageBackend
 from memstate.constants import Operation
 from memstate.exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
 from memstate.schemas import Fact, TxEntry
-
-
-class MemoryHook(Protocol):
-    def __call__(self, op: Operation, fact_id: str, fact: Fact | None) -> None: ...
-
-
-class AsyncMemoryHook(Protocol):
-    def __call__(self, op: Operation, fact_id: str, fact: Fact | None) -> Awaitable[None]: ...
+from memstate.types import AsyncMemoryHook, MemoryHook
 
 
 class SchemaRegistry:
+    """
+    Manages schema registration and validation with a mapping of type names to Pydantic models.
+
+    The SchemaRegistry class allows for the registration of Pydantic models with associated type names.
+    It provides functionality for validating payloads against the registered schemas and for reverse-
+    looking up type names by model classes.
+
+    Attributes:
+        schemas (dict[str, type[BaseModel]]): A mapping of type names to their registered Pydantic models.
+    """
+
     def __init__(self) -> None:
         self._schemas: dict[str, type[BaseModel]] = {}
 
     def register(self, typename: str, model: type[BaseModel]) -> None:
+        """
+        Registers a model under a specific type name within the schema registry.
+
+        This method associates a given model with a unique type name in the internal
+        schema registry. The registered type name and model can later be retrieved or
+        used for validation or other processing purposes.
+
+        Args:
+            typename (str): The unique identifier for the model being registered.
+            model (type[BaseModel]): The Pydantic model class to register.
+
+        Returns:
+            None
+        """
         self._schemas[typename] = model
 
     def validate(self, typename: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Validates the given payload against the model schema for the specified type name. If no schema
+        exists for the provided type name, the payload is returned unmodified. If validation fails, an
+        exception containing the details of the validation failure is raised.
+
+        Args:
+            typename (str): The type name for which the payload is to be validated.
+            payload (dict[str, Any]): The dictionary payload to be validated against the corresponding model schema.
+
+        Returns:
+            A dictionary containing the validated payload in JSON-serializable format.
+
+        Raises:
+            ValidationFailed: If the input payload fails validation against the schema.
+        """
         model_cls = self._schemas.get(typename)
         if not model_cls:
             return payload
@@ -40,7 +73,18 @@ class SchemaRegistry:
 
     def get_type_by_model(self, model_class: type[BaseModel]) -> str | None:
         """
-        Reverse lookup: finds the registered type name for a given Pydantic class.
+        Retrieve the type name associated with a given model class.
+
+        This method iterates through a dictionary of schemas and checks if the
+        provided model class matches any value in the dictionary. If a match is
+        found, the corresponding type name is returned. If no match is found, it
+        returns None.
+
+        Args:
+            model_class (type[BaseModel]): The Pydantic model class to find the corresponding type name for.
+
+        Returns:
+            The type name associated with the provided model class, or None if no match is found.
         """
         for type_name, cls in self._schemas.items():
             if cls == model_class:
@@ -49,12 +93,39 @@ class SchemaRegistry:
 
 
 class Constraint:
+    """
+    Represents a constraint with properties for configuration.
+
+    This class is used to define constraints with options for a singleton
+    key and immutability. It provides a structure to manage these constraint
+    properties for further processing or validation.
+
+    Attributes:
+        singleton_key (str | None): Optional key used to identify a singleton behavior.
+            If set, it implies uniqueness based on the value of the key.
+        immutable (bool): Indicates if the constraint is immutable. If True, the
+            constraint cannot be modified after its creation.
+    """
+
     def __init__(self, singleton_key: str | None = None, immutable: bool = False) -> None:
         self.singleton_key = singleton_key
         self.immutable = immutable
 
 
 class MemoryStore:
+    """
+    Handles in-memory storage of structured data with schema enforcement, transactional
+    capabilities, and hooks for custom operations.
+
+    This class provides a structured method to store and retrieve facts with enforced schema
+    validation and constraints. It also supports mechanisms for transactional logging,
+    model validation, and hook execution during operations.
+
+    Attributes:
+        storage (StorageBackend): Backend storage mechanism for persisting facts and transaction information.
+        hooks (list[MemoryHook]): List of hooks to be executed during memory operations.
+    """
+
     def __init__(self, storage: StorageBackend, hooks: list[MemoryHook] | None = None) -> None:
         self.storage = storage
         self._constraints: dict[str, Constraint] = {}
@@ -64,14 +135,56 @@ class MemoryStore:
         self._hooks: list[MemoryHook] = hooks or []
 
     def register_schema(self, typename: str, model: type[BaseModel], constraint: Constraint | None = None) -> None:
+        """
+        Registers a schema in the schema registry and optionally applies a constraint.
+
+        Args:
+            typename (str): The unique identifier for the model being registered.
+            model (type[BaseModel]): The Pydantic model class to register.
+            constraint (Constraint | None): Optional constraint to associate with the type.
+
+        Returns:
+            None
+        """
         self._schema_registry.register(typename, model)
         if constraint:
             self._constraints[typename] = constraint
 
     def add_hook(self, hook: MemoryHook) -> None:
+        """
+        Adds a new memory hook to the list of hooks.
+
+        This method registers a `MemoryHook` instance into the internal hooks
+        list for further processing. A `MemoryHook` is an abstraction that can
+        be used to monitor and react to specific memory-related events.
+
+        Args:
+            hook (MemoryHook): The hook instance to be added to the hooks list.
+
+        Returns:
+            None
+        """
         self._hooks.append(hook)
 
     def _notify_hooks(self, op: Operation, fact_id: str, data: Fact | None) -> None:
+        """
+        Notifies all registered hooks about an operation applied to a fact.
+
+        This method iterates over all hooks and invokes each with the operation performed,
+        the fact identifier, and optional additional data. It propagates any exceptions
+        raised by the hooks within a `HookError` wrapper.
+
+        Args:
+            op (Operation): The operation being performed, usually represented as an instance.
+            fact_id (str): The identifier of the fact being affected by the operation.
+            data (Fact | None): Optional data that provides additional information about the operation or fact.
+
+        Returns:
+            None
+
+        Raises:
+            HookError: If an exception is raised by a hook during execution.
+        """
         for hook in self._hooks:
             try:
                 hook(op, fact_id, data)
@@ -87,6 +200,21 @@ class MemoryStore:
         actor: str | None,
         reason: str | None,
     ) -> None:
+        """
+        Logs a transaction with details pertaining to an operation, including its type, timestamp, associated fact data,
+        the actor involved, and the reason for the operation.
+
+        Args:
+            op (Operation): The operation being performed.
+            fact_id (str | None): The unique identifier of the fact associated with the operation, or None if not applicable.
+            before (dict[str, Any] | None): A dictionary containing the state of the fact before the operation, or None if not applicable.
+            after (dict[str, Any] | None): A dictionary containing the state of the fact after the operation, or None if not applicable.
+            actor (str | None): The identifier of the actor who performed the operation, or None if not provided.
+            reason (str | None): The reason or justification for the operation, or None if not specified.
+
+        Returns:
+            None
+        """
         self._seq += 1
         tx = TxEntry(
             seq=self._seq,
@@ -108,6 +236,30 @@ class MemoryStore:
         actor: str | None = None,
         reason: str | None = None,
     ) -> str:
+        """
+        Commits a `Fact` object to the storage, optionally allowing for ephemeral
+        storage, and updates existing records if applicable. The operation evaluates
+        constraints such as immutability or uniqueness, handles potential duplicates,
+        and invokes hooks for logging and notifications. Supports rollback of changes
+        in case of errors.
+
+        Args:
+            fact (Fact): The `Fact` object to be committed. Validates the payload against
+                schema registry and potentially updates or creates a new entry in the
+                storage.
+            session_id (str | None): Optional session identifier associated with the `Fact`.
+            ephemeral (bool): Indicates whether the `Fact` is transient and should not be persisted. Defaults to `False`.
+            actor (str | None): Optional identifier for the individual or system responsible
+                for initiating the commit. Used for logging and auditing purposes.
+            reason (str | None): Optional string describing the purpose of the commit. Used
+                primarily for auditing and logging.
+
+        Returns:
+            The unique identifier of the committed fact.
+
+        Raises:
+            HookError: If an error occurs during hook execution.
+        """
         with self._lock:
             validated_payload = self._schema_registry.validate(fact.type, fact.payload)
             fact.payload = validated_payload
@@ -171,8 +323,27 @@ class MemoryStore:
         reason: str | None = None,
     ) -> str:
         """
-        Commit a Pydantic model instance directly.
-        Auto-detects the schema type from the registry.
+        Commits a model to the store using the provided schema registry and additional metadata.
+
+        This method registers a given `model` object with a schema type derived from its class. Metadata such
+        as `fact_id`, `source`, `session_id`, `ephemeral`, `actor`, and `reason` can be supplied to categorize
+        or provide context for the operation. If the model's schema type is not registered, an error is raised.
+
+        Args:
+            model (BaseModel): The model instance to commit.
+            fact_id (str | None): Optional unique identifier for the fact. If not provided, a new UUID is generated.
+            source (str | None): Optional source of the operation. Defaults to None.
+            session_id (str | None): Optional identifier for the session in which the commit is performed. Defaults to None.
+            ephemeral (bool): Optional. Determines if the data should be treated as ephemeral. Defaults to False.
+            actor (str | None): Optional identifier for the entity performing the commit. Defaults to None.
+            reason (str | None): Optional description or justification for the commit operation. Defaults to None.
+
+        Returns:
+            The result of the commit operation as a string.
+
+        Raises:
+            MemoryStoreError: If the model's schema type is not registered.
+            HookError: If an error occurs during hook execution.
         """
         schema_type = self._schema_registry.get_type_by_model(model.__class__)
 
@@ -189,6 +360,25 @@ class MemoryStore:
         return self.commit(fact, session_id=session_id, ephemeral=ephemeral, actor=actor, reason=reason)
 
     def update(self, fact_id: str, patch: dict[str, Any], actor: str | None = None, reason: str | None = None) -> str:
+        """
+        Updates an existing fact in the store by applying a patch to its contents. The update process
+        validates the resulting payload using the schema registry and manages concurrent modifications
+        with locking. If the update fails during hook notification, the operation is rolled back
+        to its previous state.
+
+        Args:
+            fact_id (str): The unique identifier of the fact to be updated.
+            patch (dict[str, Any]): A dictionary representing the modifications to be applied to the current fact's payload.
+            actor (str | None): Optional identifier for the user or system performing the update. Defaults to None if not applicable.
+            reason (str | None): Optional reason or context for the update operation. Defaults to None.
+
+        Returns:
+            The unique identifier of the updated fact.
+
+        Raises:
+            MemoryStoreError: If the fact with the specified identifier is not found in the store.
+            HookError: If an error occurs during the hook notification process.
+        """
         with self._lock:
             existing = self.storage.load(fact_id)
             if not existing:
@@ -218,6 +408,21 @@ class MemoryStore:
             return fact_id
 
     def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
+        """
+        Deletes an existing fact from storage identified by the given fact ID. This operation logs the
+        deletion, notifies hooks about the operation, and ensures thread safety during execution.
+
+        Args:
+            fact_id (str): The unique identifier of the fact to be deleted.
+            actor (str | None): Optional identifier for the user or system performing the deletion. Defaults to None if not applicable.
+            reason (str | None): Optional reason or context for the deletion operation. Defaults to None.
+
+        Returns:
+            The fact ID of the deleted fact.
+
+        Raises:
+            MemoryStoreError: If the fact with the given ID is not found in storage.
+        """
         with self._lock:
             existing = self.storage.load(fact_id)
             if not existing:
@@ -229,9 +434,39 @@ class MemoryStore:
             return fact_id
 
     def get(self, fact_id: str) -> dict[str, Any] | None:
+        """
+        Retrieves a fact from the storage based on the provided fact ID.
+
+        This method accesses the underlying storage to load a fact corresponding
+        to the given identifier. If the fact ID does not exist in the storage,
+        the method will return None.
+
+        Args:
+            fact_id (str): The unique identifier of the fact to retrieve.
+
+        Returns:
+            A dictionary representation of the fact if found, otherwise None.
+        """
         return self.storage.load(fact_id)
 
     def query(self, typename: str | None = None, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """
+        Executes a query against the storage with optional type and filter constraints.
+
+        This method interacts with the underlying storage to filter and retrieve data
+        based on the provided type and filtering criteria. The `typename` allows for
+        filtering objects of a specific type, whereas `filters` enables more fine-grained
+        queries by applying a JSON-based filter.
+
+        Args:
+            typename (str | None): A string that specifies the type of objects to query. If set
+                to None, no type filtering is applied.
+            filters (dict[str, Any] | None): A dictionary representing JSON-style filter constraints to
+                apply to the query. If set to None, no filter constraints are applied.
+
+        Returns:
+            A list of dictionaries containing query results that match the given filters and type constraints.
+        """
         return self.storage.query(type_filter=typename, json_filters=filters)
 
     def promote_session(
@@ -241,6 +476,22 @@ class MemoryStore:
         actor: str | None = None,
         reason: str | None = None,
     ) -> list[str]:
+        """
+        Promotes session-related facts by modifying the session ID to dissociate
+        them from the provided session. This is based on the selector criteria
+        (if provided). The promotion operation will be logged and associated hooks
+        will be notified.
+
+        Args:
+            session_id (str): The unique identifier of the session whose facts are to be processed for promotion.
+            selector (Callable[[dict[str, Any]], bool] | None): A callable to filter facts based on custom logic. If
+                provided, only facts passing this filter will be promoted. Defaults to None.
+            actor (str | None): Optional identifier for the user or system performing the promotion operation. Defaults to None.
+            reason (str | None): Optional reason or context for the promotion operation. Defaults to None.
+
+        Returns:
+            A list of identifiers for the promoted facts.
+        """
         with self._lock:
             candidates = self.storage.get_session_facts(session_id)
 
@@ -260,6 +511,18 @@ class MemoryStore:
             return promoted
 
     def discard_session(self, session_id: str) -> int:
+        """
+        Discard a session and clear related stored data in the storage.
+
+        This method removes all records associated with the given session ID
+        from the storage and logs the operation if any data is cleared.
+
+        Args:
+            session_id (str): The unique identifier of the session to discard.
+
+        Returns:
+            The number of records cleared from the storage.
+        """
         deleted_ids = self.storage.delete_session(session_id)
         if deleted_ids:
             self._log_tx(
@@ -273,6 +536,17 @@ class MemoryStore:
         return len(deleted_ids)
 
     def rollback(self, steps: int = 1) -> None:
+        """
+        Reverts the state of the storage by rolling back a specified number of transactional
+        operations. Each operation is extracted from the transaction log and reversed based on
+        its type (e.g., CREATE, UPDATE, DELETE).
+
+        Args:
+            steps (int): The number of transactional steps to roll back. Defaults to 1. Must be a positive integer.
+
+        Returns:
+            None
+        """
         with self._lock:
             if steps <= 0:
                 return
@@ -301,6 +575,19 @@ class MemoryStore:
 
 
 class AsyncMemoryStore:
+    """
+    Handles in-memory storage of structured data with schema enforcement, transactional
+    capabilities, and hooks for custom operations.
+
+    This class provides a structured method to store and retrieve facts with enforced schema
+    validation and constraints. It also supports mechanisms for transactional logging,
+    model validation, and hook execution during operations.
+
+    Attributes:
+        storage (AsyncStorageBackend): Backend storage mechanism for persisting facts and transaction information.
+        hooks (list[AsyncMemoryHook]): List of hooks to be executed during memory operations.
+    """
+
     def __init__(self, storage: AsyncStorageBackend, hooks: list[AsyncMemoryHook] | None = None) -> None:
         self.storage = storage
         self._constraints: dict[str, Constraint] = {}
@@ -310,14 +597,56 @@ class AsyncMemoryStore:
         self._hooks: list[AsyncMemoryHook] = hooks or []
 
     def register_schema(self, typename: str, model: type[BaseModel], constraint: Constraint | None = None) -> None:
+        """
+        Registers a schema in the schema registry and optionally applies a constraint.
+
+        Args:
+            typename (str): The unique identifier for the model being registered.
+            model (type[BaseModel]): The Pydantic model class to register.
+            constraint (Constraint | None): Optional constraint to associate with the type.
+
+        Returns:
+            None
+        """
         self._schema_registry.register(typename, model)
         if constraint:
             self._constraints[typename] = constraint
 
     def add_hook(self, hook: AsyncMemoryHook) -> None:
+        """
+        Adds a new memory hook to the list of hooks.
+
+        This method registers a `AsyncMemoryHook` instance into the internal hooks
+        list for further processing. A `AsyncMemoryHook` is an abstraction that can
+        be used to monitor and react to specific memory-related events.
+
+        Args:
+            hook (AsyncMemoryHook): The hook instance to be added to the hooks list.
+
+        Returns:
+            None
+        """
         self._hooks.append(hook)
 
     async def _notify_hooks(self, op: Operation, fact_id: str, data: Fact | None) -> None:
+        """
+        Asynchronously notifies all registered hooks about an operation applied to a fact.
+
+        This method iterates over all hooks and invokes each with the operation performed,
+        the fact identifier, and optional additional data. It propagates any exceptions
+        raised by the hooks within a `HookError` wrapper.
+
+        Args:
+            op (Operation): The operation being performed, usually represented as an instance.
+            fact_id (str): The identifier of the fact being affected by the operation.
+            data (Fact | None): Optional data that provides additional information about the operation or fact.
+
+        Returns:
+            None
+
+        Raises:
+            HookError: If an exception is raised by a hook during execution.
+        """
         for hook in self._hooks:
             try:
                 await hook(op, fact_id, data)
@@ -333,6 +662,21 @@ class AsyncMemoryStore:
         actor: str | None,
         reason: str | None,
     ) -> None:
+        """
+        Asynchronously logs a transaction with details pertaining to an operation, including its type, timestamp, associated fact data,
+        the actor involved, and the reason for the operation.
+
+        Args:
+            op (Operation): The operation being performed.
+            fact_id (str | None): The unique identifier of the fact associated with the operation, or None if not applicable.
+            before (dict[str, Any] | None): A dictionary containing the state of the fact before the operation, or None if not applicable.
+            after (dict[str, Any] | None): A dictionary containing the state of the fact after the operation, or None if not applicable.
+            actor (str | None): The identifier of the actor who performed the operation, or None if not provided.
+            reason (str | None): The reason or justification for the operation, or None if not specified.
+
+        Returns:
+            None
+        """
         self._seq += 1
         tx = TxEntry(
             seq=self._seq,
@@ -354,6 +698,30 @@ class AsyncMemoryStore:
         actor: str | None = None,
         reason: str | None = None,
     ) -> str:
+        """
+        Asynchronously commits a `Fact` object to the storage, optionally allowing for ephemeral
+        storage, and updates existing records if applicable. The operation evaluates
+        constraints such as immutability or uniqueness, handles potential duplicates,
+        and invokes hooks for logging and notifications. Supports rollback of changes
+        in case of errors.
+
+        Args:
+            fact (Fact): The `Fact` object to be committed. Validates the payload against
+                schema registry and potentially updates or creates a new entry in the
+                storage.
+            session_id (str | None): Optional session identifier associated with the `Fact`.
+            ephemeral (bool): Indicates whether the `Fact` is transient and should not be persisted. Defaults to `False`.
+            actor (str | None): Optional identifier for the individual or system responsible
+                for initiating the commit. Used for logging and auditing purposes.
+            reason (str | None): Optional string describing the purpose of the commit. Used
+                primarily for auditing and logging.
+
+        Returns:
+            The unique identifier of the committed fact.
+
+        Raises:
+            HookError: If an error occurs during hook execution.
+        """
         async with self._lock:
             validated_payload = self._schema_registry.validate(fact.type, fact.payload)
             fact.payload = validated_payload
@@ -416,6 +784,29 @@ class AsyncMemoryStore:
         actor: str | None = None,
         reason: str | None = None,
     ) -> str:
+        """
+        Asynchronously commits a model to the store using the provided schema registry and additional metadata.
+
+        This method registers a given `model` object with a schema type derived from its class. Metadata such
+        as `fact_id`, `source`, `session_id`, `ephemeral`, `actor`, and `reason` can be supplied to categorize
+        or provide context for the operation. If the model's schema type is not registered, an error is raised.
+
+        Args:
+            model (BaseModel): The model instance to commit.
+            fact_id (str | None): Optional unique identifier for the fact. If not provided, a new UUID is generated.
+            source (str | None): Optional source of the operation. Defaults to None.
+            session_id (str | None): Optional identifier for the session in which the commit is performed. Defaults to None.
+            ephemeral (bool): Optional. Determines if the data should be treated as ephemeral. Defaults to False.
+            actor (str | None): Optional identifier for the entity performing the commit. Defaults to None.
+            reason (str | None): Optional description or justification for the commit operation. Defaults to None.
+
+        Returns:
+            The result of the commit operation as a string.
+
+        Raises:
+            MemoryStoreError: If the model's schema type is not registered.
+            HookError: If an error occurs during hook execution.
+        """
         schema_type = self._schema_registry.get_type_by_model(model.__class__)
 
         if not schema_type:
@@ -433,6 +824,25 @@ class AsyncMemoryStore:
     async def update(
         self, fact_id: str, patch: dict[str, Any], actor: str | None = None, reason: str | None = None
     ) -> str:
+        """
+        Asynchronously updates an existing fact in the store by applying a patch to its contents. The update process
+        validates the resulting payload using the schema registry and manages concurrent modifications
+        with locking. If the update fails during hook notification, the operation is rolled back
+        to its previous state.
+
+        Args:
+            fact_id (str): The unique identifier of the fact to be updated.
+            patch (dict[str, Any]): A dictionary representing the modifications to be applied to the current fact's payload.
+            actor (str | None): Optional identifier for the user or system performing the update. Defaults to None if not applicable.
+            reason (str | None): Optional reason or context for the update operation. Defaults to None.
+
+        Returns:
+            The unique identifier of the updated fact.
+
+        Raises:
+            MemoryStoreError: If the fact with the specified identifier is not found in the store.
+            HookError: If an error occurs during the hook notification process.
+        """
         async with self._lock:
             existing = await self.storage.load(fact_id)
             if not existing:
@@ -462,6 +872,21 @@ class AsyncMemoryStore:
             return fact_id
 
     async def delete(self, fact_id: str, actor: str | None = None, reason: str | None = None) -> str:
+        """
+        Asynchronously deletes an existing fact from storage identified by the given fact ID. This operation logs the
+        deletion, notifies hooks about the operation, and ensures thread safety during execution.
+
+        Args:
+            fact_id (str): The unique identifier of the fact to be deleted.
+            actor (str | None): Optional identifier for the user or system performing the deletion. Defaults to None if not applicable.
+            reason (str | None): Optional reason or context for the deletion operation. Defaults to None.
+
+        Returns:
+            The fact ID of the deleted fact.
+
+        Raises:
+            MemoryStoreError: If the fact with the given ID is not found in storage.
+        """
         async with self._lock:
             existing = await self.storage.load(fact_id)
             if not existing:
@@ -473,9 +898,39 @@ class AsyncMemoryStore:
             return fact_id
 
     async def get(self, fact_id: str) -> dict[str, Any] | None:
+        """
+        Asynchronously retrieves a fact from the storage based on the provided fact ID.
+
+        This method accesses the underlying storage to load a fact corresponding
+        to the given identifier. If the fact ID does not exist in the storage,
+        the method will return None.
+
+        Args:
+            fact_id (str): The unique identifier of the fact to retrieve.
+
+        Returns:
+            A dictionary representation of the fact if found, otherwise None.
+        """
         return await self.storage.load(fact_id)
 
     async def query(self, typename: str | None = None, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """
+        Asynchronously executes a query against the storage with optional type and filter constraints.
+
+        This method interacts with the underlying storage to filter and retrieve data
+        based on the provided type and filtering criteria. The `typename` allows for
+        filtering objects of a specific type, whereas `filters` enables more fine-grained
+        queries by applying a JSON-based filter.
+
+        Args:
+            typename (str | None): A string that specifies the type of objects to query. If set
+                to None, no type filtering is applied.
+            filters (dict[str, Any] | None): A dictionary representing JSON-style filter constraints to
+                apply to the query. If set to None, no filter constraints are applied.
+
+        Returns:
+            A list of dictionaries containing query results that match the given filters and type constraints.
+        """
         return await self.storage.query(type_filter=typename, json_filters=filters)
 
     async def promote_session(
@@ -485,6 +940,22 @@ class AsyncMemoryStore:
         actor: str | None = None,
         reason: str | None = None,
     ) -> list[str]:
+        """
+        Asynchronously promotes session-related facts by modifying the session ID to dissociate
+        them from the provided session. This is based on the selector criteria
+        (if provided). The promotion operation will be logged and associated hooks
+        will be notified.
+
+        Args:
+            session_id (str): The unique identifier of the session whose facts are to be processed for promotion.
+            selector (Callable[[dict[str, Any]], bool] | None): A callable to filter facts based on custom logic. If
+                provided, only facts passing this filter will be promoted. Defaults to None.
+            actor (str | None): Optional identifier for the user or system performing the promotion operation. Defaults to None.
+            reason (str | None): Optional reason or context for the promotion operation. Defaults to None.
+
+        Returns:
+            A list of identifiers for the promoted facts.
+        """
         async with self._lock:
             candidates = await self.storage.get_session_facts(session_id)
 
@@ -504,6 +975,18 @@ class AsyncMemoryStore:
             return promoted
 
     async def discard_session(self, session_id: str) -> int:
+        """
+        Asynchronously discard a session and clear related stored data in the storage.
+
+        This method removes all records associated with the given session ID
+        from the storage and logs the operation if any data is cleared.
+
+        Args:
+            session_id (str): The unique identifier of the session to discard.
+
+        Returns:
+            The number of records cleared from the storage.
+        """
         async with self._lock:
             deleted_ids = await self.storage.delete_session(session_id)
             if deleted_ids:
@@ -520,6 +1003,17 @@ class AsyncMemoryStore:
             return len(deleted_ids)
 
     async def rollback(self, steps: int = 1) -> None:
+        """
+        Asynchronously reverts the state of the storage by rolling back a specified number of transactional
+        operations. Each operation is extracted from the transaction log and reversed based on
+        its type (e.g., CREATE, UPDATE, DELETE).
+
+        Args:
+            steps (int): The number of transactional steps to roll back. Defaults to 1. Must be a positive integer.
+
+        Returns:
+            None
+        """
         async with self._lock:
             if steps <= 0:
                 return
