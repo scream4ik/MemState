@@ -9,6 +9,7 @@ on:
       - "mkdocs.yml"
       - "memstate/**"
       - ".github/workflows/docs.yml"
+      - "CHANGELOG.md"
 
 permissions:
   contents: write
