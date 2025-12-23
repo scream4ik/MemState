@@ -327,3 +327,110 @@ _To read more about integrations please refer to the [integrations documentation
     if __name__ == "__main__":
         asyncio.run(main())
     ```
+
+## Hybrid Search (Structured-Semantic)
+
+MemState implements a **Structured-Semantic Search** pattern. This is safer than standard RAG.
+
+How it works:
+
+1. **Semantic Discovery:** The Vector DB (via Hook) finds relevant records based on meaning (query) and strict metadata (filters).
+2. **Hydration:** MemState takes the returned IDs and loads the fresh data from the main Storage (SQL/Redis).
+
+Why is this better?<br>
+In standard RAG, if you update a record, the Vector DB might return the old text (stale embedding) until re-indexing is complete.<br>
+In MemState, you always get the latest committed version from the Source of Truth, even if the vector search found it via an older embedding.
+
+=== "sync"
+    ```python
+    from pydantic import BaseModel
+    from memstate import MemoryStore, InMemoryStorage, Constraint
+    from memstate.integrations.chroma import ChromaSyncHook
+    import chromadb
+    
+    class UserPref(BaseModel):
+        content: str
+        role: str
+
+    client = chromadb.Client()
+
+    hook = ChromaSyncHook(
+        client=client,
+        collection_name="agent_memory",
+        text_field="content",
+        metadata_fields=["role"],
+    )
+
+    store = MemoryStore(storage=InMemoryStorage(), hooks=[hook])
+    store.register_schema(
+        typename="preference",
+        model=UserPref,
+        constraint=Constraint(singleton_key="role", immutable=False),
+    )
+
+    store.commit_model(
+        model=UserPref(content="I love spicy food", role="preference"),
+        session_id="session_1",
+    )
+
+    results = store.search(
+        query="What food does the user like?",
+        filters={"role": "preference"},
+        limit=5
+    )
+
+    for item in results:
+        print(f"Score: {item.score}")
+        print(f"Data: {item.fact.payload}")
+    ```
+
+=== "async"
+    ```python
+    import asyncio
+    from pydantic import BaseModel
+    from memstate import AsyncMemoryStore, AsyncInMemoryStorage, Constraint, HookError
+    from memstate.integrations.chroma import AsyncChromaSyncHook
+    import chromadb
+    
+    class UserPref(BaseModel):
+        content: str
+        role: str
+    
+    async def main():
+        client = await chromadb.AsyncHttpClient()
+
+        hook = AsyncChromaSyncHook(
+            client=client,
+            collection_name="agent_memory",
+            text_field="content",
+            metadata_fields=["role"],
+        )
+
+        store = AsyncMemoryStore(storage=AsyncInMemoryStorage(), hooks=[hook])
+        store.register_schema(
+            typename="preference",
+            model=UserPref,
+            constraint=Constraint(singleton_key="role", immutable=False),
+        )
+
+        await store.commit_model(
+            model=UserPref(content="I love spicy food", role="preference"),
+            session_id="session_1",
+        )
+
+        results = await store.search(
+            query="What food does the user like?",
+            filters={"role": "preference"},
+            limit=5
+        )
+    
+        for item in results:
+            print(f"Score: {item.score}")
+            print(f"Data: {item.fact.payload}")
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+
+_**Note:** The syntax for `filters` depends on the Vector Hook you are using._<br>
+_By default, simple key-value pairs like `{"role": "user"}` are supported across all integrations. Complex operators (like `$gt`, `$in`) depend on the specific vector database dialect._

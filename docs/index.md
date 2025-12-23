@@ -74,6 +74,7 @@ SQL write + Vector upsert
 * **Append-only Fact Log**: full versioned history
 * **Crash-safe atomicity**: if a vector DB write fails, the entire memory operation (SQL + vector) is **rolled back**.
   No partial writes, no ghost embeddings, no inconsistent checkpoints.
+* **Hybrid Search:** Search by meaning (Vector), filter by facts (SQL).
 
 ---
 
