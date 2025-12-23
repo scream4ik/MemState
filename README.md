@@ -1,4 +1,4 @@
-# MemState — Transactional Memory for AI Agents
+# MemState - Transactional Memory for AI Agents
 
 **Agents hallucinate because their memory drifts.**
 SQL says one thing, the Vector DB says another. MemState keeps them in sync, always.
@@ -77,13 +77,15 @@ These two stores **drift** easily. If a network request to the Vector DB fails, 
 
 **Result:** The agent retrieves wrong context and hallucinates.
 
-## The Solution
+## Key Features
 
-MemState acts as a **Transactional Layer**. It ensures that every memory operation is **Atomic**:
+MemState acts as a **Consistency Layer** between your agent and its storage.
 
-*   **Atomic Commits:** SQL and Vector DB stay in sync. If one fails, both rollback.
-*   **Type Safety:** Pydantic validation prevents LLMs from corrupting your JSON schema.
-*   **Time Travel:** Undo N steps with `rollback(n)`. Useful for user corrections.
+*  **Atomic Commits:** SQL and Vector DB stay in sync. If one fails, both rollback.
+*  **Async & Fast:** Full asyncio support for high-performance FastAPI/LangGraph apps.
+*  **Type Safety:** Pydantic validation prevents LLMs from corrupting your JSON schema.
+*  **Hybrid Search:** Search by meaning (Vector), filter by facts (SQL).
+*  **Time Travel:** Undo N steps with rollback(n). Great for user corrections.
 
 ---
 
@@ -139,7 +141,7 @@ app = workflow.compile(checkpointer=checkpointer)
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE)
+Apache 2.0 - see [LICENSE](LICENSE)
 
 ---
 
