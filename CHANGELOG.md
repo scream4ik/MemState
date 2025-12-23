@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-12-23
+
+### Major Feature: Hybrid Structured-Semantic Search
+MemState moves beyond just storing data to retrieving it intelligently. This release adds a unified search API that combines Vector Similarity with SQL-like strict filtering.
+
+*   **New `store.search()` API:** Finds relevant IDs in the Vector DB and hydrates them with fresh data from the SQL Storage (Source of Truth).
+    *   Supports `query` (text for embedding).
+    *   Supports `filters` (metadata filtering).
+    *   Supports `score_threshold` (cutoff for relevance).
+*   **Safety First:** Search results are cross-referenced with the Storage backend. If a vector index finds a "ghost" ID (deleted in SQL), MemState automatically filters it out, preventing hallucinations.
+
+### Integrations
+*   **Qdrant Search:** Implemented search using the modern `query_points` API.
+    *   **DX Magic:** Added automatic translation of simple dictionary filters (`{"role": "user"}`) into Qdrant's complex `models.Filter` syntax.
+*   **ChromaDB Search:** Implemented semantic search with metadata filtering.
+
+### Breaking Changes (for Custom Hooks)
+*   The `MemoryHook` and `AsyncMemoryHook` protocols now require a `search` method.
+    *   If you have implemented custom hooks, you must add a `search` method (it can return an empty list `[]` if retrieval is not supported).
+
+### Documentation
+*   Added **Hybrid Search** section to Core Concepts.
+
 ## [0.4.0] - 2025-12-18
 
 ### Major: Async Support & Beta Release
