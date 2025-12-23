@@ -66,3 +66,36 @@ class TxEntry(BaseModel):
     fact_after: dict[str, Any] | None = None
     actor: str | None = None
     reason: str | None = None
+
+
+class SearchResult(BaseModel):
+    """
+    Represents a search result with related metadata.
+
+    This class encapsulates the result of a search operation, providing information
+    about the unique identifier of the search result and its associated score.
+
+    Attributes:
+        fact_id (str): Unique identifier for the search result.
+        score (float): Relevance score of the search result.
+    """
+
+    fact_id: str
+    score: float
+
+
+class ScoredFact(BaseModel):
+    """
+    Represents a scored fact model.
+
+    This class is used to associate a fact with a corresponding
+    score, which indicates the relevance or significance of the fact
+    in a given context.
+
+    Attributes:
+        fact (Fact): The fact associated with the score.
+        score (float): The significance or relevance score for the fact.
+    """
+
+    fact: Fact
+    score: float

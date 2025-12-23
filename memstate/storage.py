@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError
 from memstate.backends.base import AsyncStorageBackend, StorageBackend
 from memstate.constants import Operation
 from memstate.exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
-from memstate.schemas import Fact, TxEntry
+from memstate.schemas import Fact, ScoredFact, SearchResult, TxEntry
 from memstate.types import AsyncMemoryHook, MemoryHook
 
 
@@ -587,6 +587,47 @@ class MemoryStore:
             tx_uuids = [entry["uuid"] for entry in logs]
             self.storage.delete_txs(tx_uuids)
 
+    def search(
+        self, query: str, limit: int = 5, filters: dict[str, Any] | None = None, score_threshold: float | None = None
+    ) -> list[ScoredFact]:
+        """
+        Performs a hybrid search operation combining semantic search through Vector DB
+        with data retrieval from a storage system. This function enables the execution
+        of both fuzzy and precise search queries and supports filtering. The semantic
+        search retrieves relevant IDs and scores, while the storage system augments
+        these results with the most recent data associated with those IDs.
+
+        Args:
+            query (str): The search term to use when querying both the vector database and the storage system.
+            limit (int): The maximum number of results to return. Optional, with a default value of 5.
+            filters (dict[str, Any] | None): A dictionary of filter conditions to apply during the search.
+                The filters argument supports simple key-value matching {"key": "value"} across all backends.
+                For complex queries (ranges, OR-logic), you must use the syntax specific to your active Vector DB.
+            score_threshold (float | None): A numeric threshold to exclude results with scores
+                below this value. Optional, defaults to None.
+
+        Returns:
+            A list of `ScoredFact` objects containing facts retrieved and their associated scores.
+        """
+        search_results: list[SearchResult] = []
+        for hook in self._hooks:
+            results = hook.search(query, limit, filters, score_threshold)
+            search_results.extend(results)
+
+        if not search_results:
+            return []
+
+        unique_hits = {res.fact_id: res.score for res in search_results}
+        final_results = []
+
+        for fid, score in unique_hits.items():
+            data = self.storage.load(fid)
+            if data:
+                fact = Fact(**data)
+                final_results.append(ScoredFact(score=score, fact=fact))
+
+        return final_results
+
 
 class AsyncMemoryStore:
     """
@@ -1070,3 +1111,44 @@ class AsyncMemoryStore:
 
             tx_uuids = [entry["uuid"] for entry in logs]
             await self.storage.delete_txs(tx_uuids)
+
+    async def search(
+        self, query: str, limit: int = 5, filters: dict[str, Any] | None = None, score_threshold: float | None = None
+    ) -> list[ScoredFact]:
+        """
+        Asynchronously performs a hybrid search operation combining semantic search through Vector DB
+        with data retrieval from a storage system. This function enables the execution
+        of both fuzzy and precise search queries and supports filtering. The semantic
+        search retrieves relevant IDs and scores, while the storage system augments
+        these results with the most recent data associated with those IDs.
+
+        Args:
+            query (str): The search term to use when querying both the vector database and the storage system.
+            limit (int): The maximum number of results to return. Optional, with a default value of 5.
+            filters (dict[str, Any] | None): A dictionary of filter conditions to apply during the search.
+                The filters argument supports simple key-value matching {"key": "value"} across all backends.
+                For complex queries (ranges, OR-logic), you must use the syntax specific to your active Vector DB.
+            score_threshold (float | None): A numeric threshold to exclude results with scores
+                below this value. Optional, defaults to None.
+
+        Returns:
+            A list of `ScoredFact` objects containing facts retrieved and their associated scores.
+        """
+        search_results: list[SearchResult] = []
+        for hook in self._hooks:
+            results = await hook.search(query, limit, filters, score_threshold)
+            search_results.extend(results)
+
+        if not search_results:
+            return []
+
+        unique_hits = {res.fact_id: res.score for res in search_results}
+        final_results = []
+
+        for fid, score in unique_hits.items():
+            data = await self.storage.load(fid)
+            if data:
+                fact = Fact(**data)
+                final_results.append(ScoredFact(score=score, fact=fact))
+
+        return final_results

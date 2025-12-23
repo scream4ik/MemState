@@ -4,7 +4,7 @@ import pytest
 
 qdrant_client = pytest.importorskip("qdrant_client")
 
-from memstate import Fact, Operation
+from memstate import Fact, Operation, SearchResult
 from memstate.integrations.qdrant import QdrantSyncHook
 
 
@@ -132,3 +132,47 @@ def test_fallback_missing_text_skips_upsert(client, collection_name, fact_id):
 
     points, _ = client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 0
+
+
+def test_search_returns_results(client, collection_name):
+    hook = QdrantSyncHook(client=client, collection_name=collection_name, text_field="content")
+    f1 = str(uuid.uuid4())
+    f2 = str(uuid.uuid4())
+
+    hook(Operation.COMMIT, f1, Fact(type="test", payload={"content": "Apple pie recipe"}))
+    hook(Operation.COMMIT, f2, Fact(type="test", payload={"content": "Car engine manual"}))
+
+    results = hook.search("apple", limit=1)
+
+    assert len(results) == 1
+    assert isinstance(results[0], SearchResult)
+    assert results[0].fact_id == f1
+    assert isinstance(results[0].score, float)
+
+
+def test_search_with_filters(client, collection_name):
+    hook = QdrantSyncHook(
+        client=client, collection_name=collection_name, text_field="content", metadata_fields=["category"]
+    )
+    f1 = str(uuid.uuid4())
+    f2 = str(uuid.uuid4())
+
+    hook(Operation.COMMIT, f1, Fact(type="doc", payload={"content": "Hello world", "category": "A"}))
+    hook(Operation.COMMIT, f2, Fact(type="doc", payload={"content": "Hello world", "category": "B"}))
+
+    results = hook.search(
+        "Hello",
+        filters=qdrant_client.models.Filter(
+            must=[qdrant_client.models.FieldCondition(key="category", match=qdrant_client.models.MatchValue(value="B"))]
+        ),
+        score_threshold=0.7,
+    )
+
+    assert len(results) == 1
+    assert results[0].fact_id == f2
+
+
+def test_search_empty(client, collection_name):
+    hook = QdrantSyncHook(client=client, collection_name=collection_name)
+    results = hook.search("nothing here", score_threshold=0.7)
+    assert results == []

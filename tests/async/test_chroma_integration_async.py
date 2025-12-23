@@ -3,7 +3,7 @@ from testcontainers.chroma import ChromaContainer
 
 chromadb = pytest.importorskip("chromadb")
 
-from memstate import Fact, Operation
+from memstate import Fact, Operation, SearchResult
 from memstate.integrations.chroma import AsyncChromaSyncHook
 
 
@@ -110,3 +110,37 @@ async def test_fallback_missing_text_skips_upsert(chroma_client, collection_name
     coll = await chroma_client.get_collection(collection_name)
     result = await coll.get(ids=["bad_1"])
     assert len(result["ids"]) == 0
+
+
+async def test_search_returns_results(chroma_client, collection_name):
+    hook = AsyncChromaSyncHook(client=chroma_client, collection_name=collection_name, text_field="content")
+
+    await hook(Operation.COMMIT, "f1", Fact(type="test", payload={"content": "Apple pie recipe"}))
+    await hook(Operation.COMMIT, "f2", Fact(type="test", payload={"content": "Car engine manual"}))
+
+    results = await hook.search("apple", limit=1)
+
+    assert len(results) == 1
+    assert isinstance(results[0], SearchResult)
+    assert results[0].fact_id == "f1"
+    assert isinstance(results[0].score, float)
+
+
+async def test_search_with_filters(chroma_client, collection_name):
+    hook = AsyncChromaSyncHook(
+        client=chroma_client, collection_name=collection_name, text_field="content", metadata_fields=["category"]
+    )
+
+    await hook(Operation.COMMIT, "f1", Fact(type="doc", payload={"content": "Hello world", "category": "A"}))
+    await hook(Operation.COMMIT, "f2", Fact(type="doc", payload={"content": "Hello world", "category": "B"}))
+
+    results = await hook.search("Hello", filters={"category": "B"}, score_threshold=1.2)
+
+    assert len(results) == 1
+    assert results[0].fact_id == "f2"
+
+
+async def test_search_empty(chroma_client, collection_name):
+    hook = AsyncChromaSyncHook(client=chroma_client, collection_name=collection_name)
+    results = await hook.search("nothing here", score_threshold=1.2)
+    assert results == []

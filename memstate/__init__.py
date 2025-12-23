@@ -9,7 +9,7 @@ from memstate.backends.inmemory import AsyncInMemoryStorage, InMemoryStorage
 from memstate.backends.sqlite import AsyncSQLiteStorage, SQLiteStorage
 from memstate.constants import Operation
 from memstate.exceptions import ConflictError, HookError, MemoryStoreError, ValidationFailed
-from memstate.schemas import Fact, TxEntry
+from memstate.schemas import Fact, ScoredFact, SearchResult, TxEntry
 from memstate.storage import AsyncMemoryStore, Constraint, MemoryStore, SchemaRegistry
 from memstate.types import AsyncMemoryHook, MemoryHook
 
@@ -20,6 +20,8 @@ __all__ = [
     "Constraint",
     "Fact",
     "TxEntry",
+    "SearchResult",
+    "ScoredFact",
     "Operation",
     "InMemoryStorage",
     "AsyncInMemoryStorage",

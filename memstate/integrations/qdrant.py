@@ -5,7 +5,7 @@ Qdrant integration.
 from typing import Any, Callable
 
 from memstate.constants import Operation
-from memstate.schemas import Fact
+from memstate.schemas import Fact, SearchResult
 from memstate.types import AsyncMemoryHook, MemoryHook
 
 try:
@@ -205,6 +205,38 @@ class QdrantSyncHook(MemoryHook):
 
         return {}
 
+    def _build_filter(self, filters: dict[str, Any] | Any | None) -> Any:
+        """
+        Adapts a generic dictionary filter to Qdrant's Filter model.
+        Supports:
+        1. Raw qdrant_client.models.Filter objects (pass-through).
+        2. Complex dicts (if they look like Qdrant DSL).
+        3. Simple dicts {"key": "value"} -> converted to MatchValue.
+
+        Args:
+            filters (dict[str, Any] | Any | None): A dictionary or other filter object to be adapted.
+
+        Returns:
+            A Qdrant-compatible filter object.
+        """
+        if not filters:
+            return None
+
+        if isinstance(filters, models.Filter):
+            return filters
+
+        if isinstance(filters, dict):
+            if any(k in filters for k in ("must", "should", "must_not", "min_should")):
+                return filters
+
+            conditions: list[models.Condition] = []
+            for key, value in filters.items():
+                conditions.append(models.FieldCondition(key=key, match=models.MatchValue(value=value)))
+
+            return models.Filter(must=conditions)
+
+        return filters
+
     def __call__(self, op: Operation, fact_id: str, fact: Fact | None) -> None:
         """
         Executes the instance as a callable. The method processes an operation with an
@@ -243,6 +275,43 @@ class QdrantSyncHook(MemoryHook):
                 collection_name=self.collection_name,
                 points=[models.PointStruct(id=fact_id, vector=vector, payload=meta)],
             )
+
+    def search(
+        self, query: str, limit: int = 5, filters: dict[str, Any] | None = None, score_threshold: float | None = None
+    ) -> list[SearchResult]:
+        """
+        Searches for results based on a query string, a specified limit, and optional filters.
+
+        This function performs a search and returns a list of results
+        matching the input query. The number of results returned can
+        be limited by the `limit` parameter. Filters can also be applied
+        to refine the search. If no filters are provided, the search is
+        performed without additional constraints.
+
+        Args:
+            query (str): A string representing the search query.
+            limit (int): An integer specifying the maximum number of results to return. Defaults to 5.
+            filters (dict | None): Qdrant-compatible filter.
+                You can pass a `qdrant_client.models.Filter` object or a raw dict.
+            score_threshold (float | None): Minimum similarity score.
+                **Note:** Qdrant usually uses Cosine Similarity (higher is better).
+                This acts as a **Minimum Score** filter.
+                Results with score < score_threshold will be excluded.
+        Returns:
+            A list of `SearchResult` objects corresponding to the
+                matches found according to the query, limit, and filters.
+        """
+        qdrant_filter = self._build_filter(filters)
+        vector = self.embedding_fn(query)
+
+        resp = self.client.query_points(
+            collection_name=self.collection_name,
+            query=vector,
+            query_filter=qdrant_filter,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        return [SearchResult(fact_id=str(p.id), score=p.score) for p in resp.points]
 
 
 class AsyncQdrantSyncHook(AsyncMemoryHook):
@@ -369,6 +438,38 @@ class AsyncQdrantSyncHook(AsyncMemoryHook):
             return meta
         return {}
 
+    def _build_filter(self, filters: dict[str, Any] | Any | None) -> Any:
+        """
+        Adapts a generic dictionary filter to Qdrant's Filter model.
+        Supports:
+        1. Raw qdrant_client.models.Filter objects (pass-through).
+        2. Complex dicts (if they look like Qdrant DSL).
+        3. Simple dicts {"key": "value"} -> converted to MatchValue.
+
+        Args:
+            filters (dict[str, Any] | Any | None): A dictionary or other filter object to be adapted.
+
+        Returns:
+            A Qdrant-compatible filter object.
+        """
+        if not filters:
+            return None
+
+        if isinstance(filters, models.Filter):
+            return filters
+
+        if isinstance(filters, dict):
+            if any(k in filters for k in ("must", "should", "must_not", "min_should")):
+                return filters
+
+            conditions: list[models.Condition] = []
+            for key, value in filters.items():
+                conditions.append(models.FieldCondition(key=key, match=models.MatchValue(value=value)))
+
+            return models.Filter(must=conditions)
+
+        return filters
+
     async def __call__(self, op: Operation, fact_id: str, fact: Fact | None) -> None:
         """
         Asynchronously executes the instance as a callable. The method processes an operation with an
@@ -409,3 +510,42 @@ class AsyncQdrantSyncHook(AsyncMemoryHook):
                 collection_name=self.collection_name,
                 points=[models.PointStruct(id=fact_id, vector=vector, payload=meta)],
             )
+
+    async def search(
+        self, query: str, limit: int = 5, filters: dict[str, Any] | None = None, score_threshold: float | None = None
+    ) -> list[SearchResult]:
+        """
+        Asynchronously searches for results based on a query string, a specified limit, and optional filters.
+
+        This function performs a search and returns a list of results
+        matching the input query. The number of results returned can
+        be limited by the `limit` parameter. Filters can also be applied
+        to refine the search. If no filters are provided, the search is
+        performed without additional constraints.
+
+        Args:
+            query (str): A string representing the search query.
+            limit (int): An integer specifying the maximum number of results to return. Defaults to 5.
+            filters (dict | None): Qdrant-compatible filter.
+                You can pass a `qdrant_client.models.Filter` object or a raw dict.
+            score_threshold (float | None): Minimum similarity score.
+                **Note:** Qdrant usually uses Cosine Similarity (higher is better).
+                This acts as a **Minimum Score** filter.
+                Results with score < score_threshold will be excluded.
+        Returns:
+            A list of `SearchResult` objects corresponding to the
+                matches found according to the query, limit, and filters.
+        """
+        await self._ensure_collection()
+
+        qdrant_filter = self._build_filter(filters)
+        vector = self.embedding_fn(query)
+
+        resp = await self.client.query_points(
+            collection_name=self.collection_name,
+            query=vector,
+            query_filter=qdrant_filter,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        return [SearchResult(fact_id=str(p.id), score=p.score) for p in resp.points]

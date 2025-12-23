@@ -4,7 +4,7 @@ import pytest
 
 qdrant_client = pytest.importorskip("qdrant_client")
 
-from memstate import Fact, Operation
+from memstate import Fact, Operation, SearchResult
 from memstate.integrations.qdrant import AsyncQdrantSyncHook
 
 
@@ -143,3 +143,47 @@ async def test_fallback_missing_text_skips_upsert(client, collection_name, fact_
 
     points, _ = await client.scroll(collection_name=collection_name, limit=10)
     assert len(points) == 0
+
+
+async def test_search_returns_results(client, collection_name):
+    hook = AsyncQdrantSyncHook(client=client, collection_name=collection_name, text_field="content")
+    f1 = str(uuid.uuid4())
+    f2 = str(uuid.uuid4())
+
+    await hook(Operation.COMMIT, f1, Fact(type="test", payload={"content": "Apple pie recipe"}))
+    await hook(Operation.COMMIT, f2, Fact(type="test", payload={"content": "Car engine manual"}))
+
+    results = await hook.search("apple", limit=1)
+
+    assert len(results) == 1
+    assert isinstance(results[0], SearchResult)
+    assert results[0].fact_id == f1
+    assert isinstance(results[0].score, float)
+
+
+async def test_search_with_filters(client, collection_name):
+    hook = AsyncQdrantSyncHook(
+        client=client, collection_name=collection_name, text_field="content", metadata_fields=["category"]
+    )
+    f1 = str(uuid.uuid4())
+    f2 = str(uuid.uuid4())
+
+    await hook(Operation.COMMIT, f1, Fact(type="doc", payload={"content": "Hello world", "category": "A"}))
+    await hook(Operation.COMMIT, f2, Fact(type="doc", payload={"content": "Hello world", "category": "B"}))
+
+    results = await hook.search(
+        "Hello",
+        filters=qdrant_client.models.Filter(
+            must=[qdrant_client.models.FieldCondition(key="category", match=qdrant_client.models.MatchValue(value="B"))]
+        ),
+        score_threshold=0.7,
+    )
+
+    assert len(results) == 1
+    assert results[0].fact_id == f2
+
+
+async def test_search_empty(client, collection_name):
+    hook = AsyncQdrantSyncHook(client=client, collection_name=collection_name)
+    results = await hook.search("nothing here", score_threshold=0.7)
+    assert results == []

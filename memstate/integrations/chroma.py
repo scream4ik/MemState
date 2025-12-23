@@ -1,11 +1,11 @@
 """
-Chomadb integration.
+Chroma DB integration.
 """
 
 from typing import Any, Callable
 
 from memstate.constants import Operation
-from memstate.schemas import Fact
+from memstate.schemas import Fact, SearchResult
 from memstate.types import AsyncMemoryHook, MemoryHook
 
 try:
@@ -138,6 +138,61 @@ class ChromaSyncHook(MemoryHook):
             meta.update(metadata)
 
             self.collection.upsert(ids=[fact_id], documents=[text], metadatas=[meta])
+
+    def search(
+        self, query: str, limit: int = 5, filters: dict[str, Any] | None = None, score_threshold: float | None = None
+    ) -> list[SearchResult]:
+        """
+        Searches for results based on a query string, a specified limit, and optional filters.
+
+        This function performs a search and returns a list of results
+        matching the input query. The number of results returned can
+        be limited by the `limit` parameter. Filters can also be applied
+        to refine the search. If no filters are provided, the search is
+        performed without additional constraints.
+
+        Args:
+            query (str): A string representing the search query.
+            limit (int): An integer specifying the maximum number of results to return. Defaults to 5.
+            filters (dict | None): Metadata filters using ChromaDB syntax.
+                This is passed directly to the 'where' parameter.
+                Examples:
+                    - Exact match: `{"role": "user"}`
+                    - Comparison: `{"age": {"$gt": 20}}`
+                    - Logic: `{"$and": [{"role": "user"}, {"active": true}]}`
+            score_threshold (float | None): Filters out results that are "too far" from the query.
+                Since Chroma uses Distance metric:
+                - 0.0 means exact match.
+                - Higher values mean less similar.
+                This parameter sets the **Maximum Distance**.
+                (e.g., set to 1.2 to filter out irrelevant noise).
+        Returns:
+            A list of `SearchResult` objects corresponding to the
+                matches found according to the query, limit, and filters.
+        """
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=limit,
+            where=filters,
+            include=["distances"],
+        )
+
+        ids = (results.get("ids") or [[]])[0]
+        distances = (results.get("distances") or [[]])[0]
+
+        if not ids:
+            return []
+
+        search_results = []
+        for fid, dist in zip(ids, distances):
+            val = float(dist)
+
+            if score_threshold is not None and val > score_threshold:
+                continue
+
+            search_results.append(SearchResult(fact_id=fid, score=val))
+
+        return search_results
 
 
 class AsyncChromaSyncHook(AsyncMemoryHook):
@@ -283,3 +338,60 @@ class AsyncChromaSyncHook(AsyncMemoryHook):
             meta.update(metadata)
 
             await collection.upsert(ids=[fact_id], documents=[text], metadatas=[meta])
+
+    async def search(
+        self, query: str, limit: int = 5, filters: dict[str, Any] | None = None, score_threshold: float | None = None
+    ) -> list[SearchResult]:
+        """
+        Asynchronously searches for results based on a query string, a specified limit, and optional filters.
+
+        This function performs a search and returns a list of results
+        matching the input query. The number of results returned can
+        be limited by the `limit` parameter. Filters can also be applied
+        to refine the search. If no filters are provided, the search is
+        performed without additional constraints.
+
+        Args:
+            query (str): A string representing the search query.
+            limit (int): An integer specifying the maximum number of results to return. Defaults to 5.
+            filters (dict | None): Metadata filters using ChromaDB syntax.
+                This is passed directly to the 'where' parameter.
+                Examples:
+                    - Exact match: `{"role": "user"}`
+                    - Comparison: `{"age": {"$gt": 20}}`
+                    - Logic: `{"$and": [{"role": "user"}, {"active": true}]}`
+            score_threshold (float | None): Filters out results that are "too far" from the query.
+                Since Chroma uses Distance metric:
+                - 0.0 means exact match.
+                - Higher values mean less similar.
+                This parameter sets the **Maximum Distance**.
+                (e.g., set to 1.2 to filter out irrelevant noise).
+        Returns:
+            A list of `SearchResult` objects corresponding to the
+                matches found according to the query, limit, and filters.
+        """
+        collection = await self._get_collection()
+
+        results = await collection.query(
+            query_texts=[query],
+            n_results=limit,
+            where=filters,
+            include=["distances"],
+        )
+
+        ids = (results.get("ids") or [[]])[0]
+        distances = (results.get("distances") or [[]])[0]
+
+        if not ids:
+            return []
+
+        search_results = []
+        for fid, dist in zip(ids, distances):
+            val = float(dist)
+
+            if score_threshold is not None and val > score_threshold:
+                continue
+
+            search_results.append(SearchResult(fact_id=fid, score=val))
+
+        return search_results
