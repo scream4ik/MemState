@@ -1,6 +1,6 @@
 [project]
 name = "memstate"
-version = "0.5.0"
+version = "0.5.1"
 description = "Transactional Memory for AI Agents - Keep SQL and Vector DBs in sync with ACID-like guarantees"
 readme = "README.md"
 requires-python = ">=3.10"
