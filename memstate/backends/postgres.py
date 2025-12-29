@@ -71,6 +71,11 @@ class PostgresStorage(StorageBackend):
             Index(f"ix_{table_prefix}_log_entry_gin", "entry", postgresql_using="gin"),
         )
         Index(f"ix_{table_prefix}_log_uuid", self._log_table.c.entry["uuid"].astext, postgresql_using="btree"),
+        Index(
+            f"ix_{table_prefix}_facts_checkpoint_ns",
+            self._facts_table.c.doc["payload"]["checkpoint_ns"].astext,
+            postgresql_using="btree",
+        )
 
         with self._engine.begin() as conn:
             self._metadata.create_all(conn)
@@ -345,6 +350,11 @@ class AsyncPostgresStorage(AsyncStorageBackend):
             Index(f"ix_{table_prefix}_log_entry_gin", "entry", postgresql_using="gin"),
         )
         Index(f"ix_{table_prefix}_log_uuid", self._log_table.c.entry["uuid"].astext, postgresql_using="btree"),
+        Index(
+            f"ix_{table_prefix}_facts_checkpoint_ns",
+            self._facts_table.c.doc["payload"]["checkpoint_ns"].astext,
+            postgresql_using="btree",
+        )
 
     async def create_tables(self) -> None:
         """

@@ -93,6 +93,9 @@ class SQLiteStorage(StorageBackend):
             )
             c.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_uuid ON tx_log(uuid)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_session ON tx_log(json_extract(data, '$.session_id'))")
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_facts_checkpoint_ns ON facts(json_extract(data, '$.payload.checkpoint_ns'))"
+            )
             self._conn.commit()
 
     def load(self, id: str) -> dict[str, Any] | None:
@@ -416,6 +419,9 @@ class AsyncSQLiteStorage(AsyncStorageBackend):
             await self._db.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_uuid ON tx_log(uuid)")
             await self._db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tx_log_session ON tx_log(json_extract(data, '$.session_id'))"
+            )
+            await self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_facts_checkpoint_ns ON facts(json_extract(data, '$.payload.checkpoint_ns'))"
             )
             await self._db.commit()
 

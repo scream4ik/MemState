@@ -31,6 +31,10 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
     associated metadata, supporting use cases that require checkpointer objects
     functioning as temporary memory storage.
 
+    Pro Tip: LangGraph checkpoints can be noisy. To prevent them from cluttering your Vector DB,
+    set `target_types` in your Sync Hook to include only your semantic fact types (e.g., `{"memory", "knowledge"}`),
+    effectively ignoring the technical `langgraph_checkpoint` type.
+
     Attributes:
         memory (MemoryStore): Reference to the memory store used for storage operations.
         serde (SerializerProtocol): Serializer for serializing checkpoint data.
@@ -74,12 +78,14 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
                 parameters after committing the provided checkpoint to memory.
         """
         thread_id = config["configurable"]["thread_id"]
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
 
         payload = {
             "checkpoint": checkpoint,
             "metadata": metadata,
             "new_versions": new_versions,
             "thread_ts": checkpoint["id"],
+            "checkpoint_ns": checkpoint_ns,
         }
 
         self.memory.commit(
@@ -90,6 +96,7 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
             "configurable": {
                 "thread_id": thread_id,
                 "thread_ts": checkpoint["id"],
+                "checkpoint_ns": checkpoint_ns,
             }
         }
 
@@ -118,6 +125,7 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
             None
         """
         thread_id = config["configurable"]["thread_id"]
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
 
         for idx, (channel, value) in enumerate(writes):
             payload = {
@@ -127,6 +135,7 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
                 "value": value,
                 "idx": idx,
                 "thread_id": thread_id,
+                "checkpoint_ns": checkpoint_ns,
             }
 
             self.memory.commit(
@@ -151,8 +160,11 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
         """
         thread_id = config["configurable"]["thread_id"]
         thread_ts = config["configurable"].get("thread_ts")
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
 
-        facts = self.memory.query(typename=self.fact_type, filters={"session_id": thread_id})
+        facts = self.memory.query(
+            typename=self.fact_type, filters={"session_id": thread_id, "payload.checkpoint_ns": checkpoint_ns}
+        )
 
         if not facts:
             return None
@@ -171,14 +183,14 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
         checkpoint = payload["checkpoint"]
         pending_sends = checkpoint.get("pending_sends") or []
 
-        # TODO: If you need support for restoring PENDING writes,
-        # you'll need to run query(typename=self.write_type) here and insert them.
-        # For a basic checkpointer, this isn't always necessary, since pending_sends is included in the checkpoint.
+        saved_metadata = payload["metadata"]
+        if config.get("metadata"):
+            saved_metadata = {**saved_metadata, **config["metadata"]}
 
         return CheckpointTuple(
             config=config,
             checkpoint=checkpoint,
-            metadata=payload["metadata"],
+            metadata=saved_metadata,
             parent_config=None,  #  (optional, skip for now)
             pending_writes=pending_sends,
         )
@@ -213,8 +225,15 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
 
         if config and "configurable" in config:
             thread_id = config["configurable"].get("thread_id")
+            checkpoint_ns = config["configurable"].get("checkpoint_ns")
             if thread_id:
                 json_filters["session_id"] = thread_id
+            if checkpoint_ns:
+                json_filters["payload.checkpoint_ns"] = checkpoint_ns
+
+        if filter:
+            for key, value in filter.items():
+                json_filters[f"payload.metadata.{key}"] = value
 
         facts = self.memory.query(typename=self.fact_type, filters=json_filters if json_filters else None)
 
@@ -230,6 +249,7 @@ class MemStateCheckpointer(BaseCheckpointSaver[str]):
                     "configurable": {
                         "thread_id": payload.get("thread_id") or json_filters.get("session_id"),
                         "thread_ts": payload["thread_ts"],
+                        "checkpoint_ns": payload.get("checkpoint_ns"),
                     }
                 },
                 payload["checkpoint"],
@@ -263,6 +283,10 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
     mechanisms. It interacts with a memory store to persist checkpoint data and
     associated metadata, supporting use cases that require checkpointer objects
     functioning as temporary memory storage.
+
+    Pro Tip: LangGraph checkpoints can be noisy. To prevent them from cluttering your Vector DB,
+    set `target_types` in your Sync Hook to include only your semantic fact types (e.g., `{"memory", "knowledge"}`),
+    effectively ignoring the technical `langgraph_checkpoint` type.
 
     Attributes:
         memory (AsyncMemoryStore): Reference to the memory store used for storage operations.
@@ -307,12 +331,14 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
                 parameters after committing the provided checkpoint to memory.
         """
         thread_id = config["configurable"]["thread_id"]
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
 
         payload = {
             "checkpoint": checkpoint,
             "metadata": metadata,
             "new_versions": new_versions,
             "thread_ts": checkpoint["id"],
+            "checkpoint_ns": checkpoint_ns,
         }
 
         # AWAIT COMMIT
@@ -324,6 +350,7 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
             "configurable": {
                 "thread_id": thread_id,
                 "thread_ts": checkpoint["id"],
+                "checkpoint_ns": checkpoint_ns,
             }
         }
 
@@ -352,6 +379,7 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
             None
         """
         thread_id = config["configurable"]["thread_id"]
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
 
         for idx, (channel, value) in enumerate(writes):
             payload = {
@@ -361,6 +389,7 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
                 "value": value,
                 "idx": idx,
                 "thread_id": thread_id,
+                "checkpoint_ns": checkpoint_ns,
             }
 
             # AWAIT COMMIT
@@ -386,8 +415,11 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
         """
         thread_id = config["configurable"]["thread_id"]
         thread_ts = config["configurable"].get("thread_ts")
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
 
-        facts = await self.memory.storage.query(type_filter=self.fact_type, json_filters={"session_id": thread_id})
+        facts = await self.memory.storage.query(
+            type_filter=self.fact_type, json_filters={"session_id": thread_id, "payload.checkpoint_ns": checkpoint_ns}
+        )
 
         if not facts:
             return None
@@ -410,10 +442,14 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
         checkpoint = payload["checkpoint"]
         pending_sends = checkpoint.get("pending_sends") or []
 
+        saved_metadata = payload["metadata"]
+        if config.get("metadata"):
+            saved_metadata = {**saved_metadata, **config["metadata"]}
+
         return CheckpointTuple(
             config=config,
             checkpoint=checkpoint,
-            metadata=payload["metadata"],
+            metadata=saved_metadata,
             parent_config=None,
             pending_writes=pending_sends,
         )
@@ -447,8 +483,15 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
         json_filters = {}
         if config and "configurable" in config:
             thread_id = config["configurable"].get("thread_id")
+            checkpoint_ns = config["configurable"].get("checkpoint_ns")
             if thread_id:
                 json_filters["session_id"] = thread_id
+            if checkpoint_ns:
+                json_filters["payload.checkpoint_ns"] = checkpoint_ns
+
+        if filter:
+            for key, value in filter.items():
+                json_filters[f"payload.metadata.{key}"] = value
 
         # AWAIT QUERY
         facts = await self.memory.storage.query(
@@ -467,6 +510,7 @@ class AsyncMemStateCheckpointer(BaseCheckpointSaver[str]):
                     "configurable": {
                         "thread_id": payload.get("thread_id") or json_filters.get("session_id"),
                         "thread_ts": payload["thread_ts"],
+                        "checkpoint_ns": payload.get("checkpoint_ns"),
                     }
                 },
                 payload["checkpoint"],
