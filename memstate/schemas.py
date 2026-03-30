@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -68,7 +69,8 @@ class TxEntry(BaseModel):
     reason: str | None = None
 
 
-class SearchResult(BaseModel):
+@dataclass(slots=True)
+class SearchResult:
     """
     Represents a search result with related metadata.
 
@@ -84,7 +86,8 @@ class SearchResult(BaseModel):
     score: float
 
 
-class ScoredFact(BaseModel):
+@dataclass(slots=True)
+class ScoredFact:
     """
     Represents a scored fact model.
 
